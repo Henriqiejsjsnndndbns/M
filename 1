@@ -1,2 +1,13 @@
-qgis --version
-python3 -c "import geopandas; print('GeoPandas pronto')"
+wget -nc https://upload.wikimedia.org/wikipedia/commons/7/7b/Piri_Reis_map.jpg -O ~/maps/piri_reis_raw.jpg && \
+source ~/venv_piri/bin/activate && \
+python3 - << 'PYTHON'
+import geopandas as gpd, pyproj, numpy as np, matplotlib.pyplot as plt
+from pyproj import CRS
+crz_gize = CRS.from_proj4('+proj=ortho +lat_0=29.9792458 +lon_0=31.1342 +x_0=0 +y_0=0 +a=6371000 +b=6371000 +units=m +no_defs')
+geotiff_path = '/home/user/qgis_projects/piri_referenced.tif'
+gdf = gpd.read_file(geotiff_path)
+gdf_epsg4326 = gdf.to_crs(epsg=4326)
+gdf_epsg4326.plot()
+plt.savefig('piri_lat_4326.png', dpi=300)
+print('Mapa georreferenciado em 4326 pronto. Rode QGIS → importar.')
+PYTHON
