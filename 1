@@ -1,0 +1,4 @@
+curl -LO https://qgis.org/downloads/qgis-3.36.0.tar.bz2 && tar -xf qgis-3.36.0.tar.bz2 -C ~/qgis3.36 && \
+python3.11 -m venv ~/venv_piri && \
+source ~/venv_piri/bin/activate && \
+pip install pyproj geopandas numpy pandas matplotlib pyqt6 gdal --no-cache-dir
