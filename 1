@@ -1,2 +1,15 @@
-mkdir -p ~/maps && \
-wget -nc https://upload.wikimedia.org/wikipedia/commons/7/7b/Piri_Reis_map.jpg -O ~/maps/piri_reis_raw.jpg
+python3 - << 'PYTHON'
+from PIL import Image
+import os
+
+img_path = '/home/henry/maps/piri_reis_raw.jpg'
+
+if not os.path.exists(img_path):
+    print("ERRO: Arquivo não encontrado.")
+else:
+    img = Image.open(img_path)
+    print(f"Formato: {img.format}")
+    print(f"Modo: {img.mode}")
+    print(f"Dimensões: {img.size}") # (largura, altura)
+    print("Imagem válida. Próximo passo: georreferenciamento manual no QGIS ou uso de pontos de controle.")
+PYTHON
