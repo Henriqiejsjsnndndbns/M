@@ -1,14 +1,2 @@
-from PIL import Image
-import os
-
-img_path = '/home/henry/maps/piri_reis_raw.jpg'
-
-if not os.path.exists(img_path):
-    print("ERRO: Arquivo não encontrado.")
-else:
-    img = Image.open(img_path)
-    print(f"Formato: {img.format}")
-    print(f"Modo: {img.mode}")
-    print(f"Dimensões: {img.size}")
-    print("Imagem válida.")
-    
+rm ~/maps/piri_reis_raw.jpg && \
+curl -L -o ~/maps/piri_reis_raw.jpg "https://upload.wikimedia.org/wikipedia/commons/7/7b/Piri_Reis_map.jpg"
