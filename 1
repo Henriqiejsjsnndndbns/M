@@ -1,18 +1,19 @@
 import numpy as np
-import sounddevice as sd
-import time
+import soundfile as sf
+import subprocess
+import os
 
 # Configurações
 SAMPLE_RATE = 44100
-DURATION_PER_BIT = 0.1  # Segundos por bit (100ms)
+DURATION_PER_BIT = 0.1  # Segundos por bit
 FREQ_0 = 800   # Hz para bit 0
 FREQ_1 = 1200  # Hz para bit 1
+OUTPUT_FILE = "tx_output.wav"
 
 def text_to_bits(text):
     """Converte string em lista de bits (0 ou 1)"""
     bits = []
     for char in text:
-        # Pega o valor ASCII e converte para 8 bits
         val = ord(char)
         for i in range(7, -1, -1):
             bits.append((val >> i) & 1)
@@ -21,41 +22,41 @@ def text_to_bits(text):
 def generate_tone(freq, duration, sample_rate):
     """Gera um array de áudio para um tom puro"""
     t = np.linspace(0, duration, int(sample_rate * duration), False)
-    # Onda senoidal normalizada (-1 a 1)
     tone = np.sin(2 * np.pi * freq * t)
-    # Aplica envelope suave para evitar cliques (pop) no início/fim
+    # Envelope suave para evitar cliques
     envelope = np.hanning(len(tone))
     return tone * envelope
 
 def transmit_text(text):
-    print(f"[TX] Iniciando transmissão: '{text}'")
+    print(f"[TX] Gerando áudio para: '{text}'")
     bits = text_to_bits(text)
     
     audio_stream = []
-    
     for bit in bits:
         freq = FREQ_1 if bit == 1 else FREQ_0
         tone = generate_tone(freq, DURATION_PER_BIT, SAMPLE_RATE)
         audio_stream.append(tone)
-        # Debug visual no terminal
-        print(f"-> Bit: {bit} | Freq: {freq}Hz")
         
     # Concatena todos os tons
     final_audio = np.concatenate(audio_stream)
     
-    # Toca o áudio
-    print("\n[TX] Tocando agora... (ouça o apito)")
-    sd.play(final_audio, samplerate=SAMPLE_RATE)
-    sd.wait() # Aguarda terminar de tocar
-    print("[TX] Transmissão concluída.")
+    # Salva em arquivo WAV
+    sf.write(OUTPUT_FILE, final_audio, SAMPLE_RATE)
+    print(f"[TX] Arquivo salvo: {OUTPUT_FILE}")
+    
+    # Toca usando o player do sistema (paplay, aplay, ou ffplay)
+    print("[TX] Tocando áudio...")
+    try:
+        # Tenta paplay (PulseAudio/PipeWire - comum no Kali/Gnome)
+        subprocess.run(["paplay", OUTPUT_FILE], check=True)
+    except FileNotFoundError:
+        try:
+            # Tenta aplay (ALSA puro)
+            subprocess.run(["aplay", OUTPUT_FILE], check=True)
+        except FileNotFoundError:
+            print("[ERRO] Nenhum player de áudio encontrado. Instale 'pulseaudio-utils' ou 'alsa-utils'.")
 
 if __name__ == "__main__":
-    # Mensagem a ser enviada
     mensagem = "SKYNETchat"
+    transmit_text(mensagem)
     
-    try:
-        transmit_text(mensagem)
-    except Exception as e:
-        print(f"Erro: {e}")
-        print("Instale as dependências: pip install numpy sounddevice")
-        
