@@ -1,6 +1,7 @@
-import numpy as np
+cat > /home/henry/pasta_kali/script.py << 'EOF'
 import wave
 import struct
+import math
 import sys
 
 SAMPLE_RATE = 44100
@@ -9,39 +10,43 @@ FREQ_0 = 1500       # Frequência para bit 0
 FREQ_1 = 2200       # Frequência para bit 1
 AMPLITUDE = 32767   # Volume máximo (16-bit signed)
 
-def generate_tone(frequency, duration):
-    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
-    tone = AMPLITUDE * np.sin(2 * np.pi * frequency * t)
-    return tone.astype(np.int16)
+def generate_tone(freq, duration, sample_rate):
+    """Gera uma lista de samples para uma onda senoidal."""
+    num_samples = int(sample_rate * duration)
+    samples = []
+    for i in range(num_samples):
+        # Fórmula da onda senoidal: Amplitude * sin(2 * pi * freq * t)
+        sample = AMPLITUDE * math.sin(2 * math.pi * freq * i / sample_rate)
+        samples.append(int(sample))
+    return samples
 
-def text_to_bits(text):
-    bits = []
-    for char in text:
-        bits.extend([int(b) for b in format(ord(char), '08b')])
-    return bits
+def encode_bit(bit_val):
+    """Retorna os samples para um bit específico."""
+    freq = FREQ_1 if bit_val == 1 else FREQ_0
+    return generate_tone(freq, BIT_DURATION, SAMPLE_RATE)
 
-def create_wav(filename, bits):
-    audio_data = np.array([], dtype=np.int16)
+def main():
+    # Dados de exemplo: sequência de bits 1 e 0
+    data_bits = [1, 0, 1, 1, 0, 0, 1, 0]
     
-    for bit in bits:
-        freq = FREQ_1 if bit else FREQ_0
-        tone = generate_tone(freq, BIT_DURATION)
-        audio_data = np.append(audio_data, tone)
+    all_samples = []
+    for bit in data_bits:
+        all_samples.extend(encode_bit(bit))
+
+    # Salvar em arquivo WAV
+    filename = "output_audio.wav"
+    with wave.open(filename, 'wb') as wav_file:
+        wav_file.setnchannels(1)  # Mono
+        wav_file.setsampwidth(2)  # 16-bit
+        wav_file.setframerate(SAMPLE_RATE)
         
-    with wave.open(filename, 'w') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(audio_data.tobytes())
-        
-    print(f"[TX] Arquivo '{filename}' gerado ({len(bits)} bits).")
-    print(f"[TX] Frequências: 0={FREQ_0}Hz, 1={FREQ_1}Hz | Duração: {BIT_DURATION}s")
+        # Empacotar os samples em binário (short int little-endian)
+        for sample in all_samples:
+            packed = struct.pack('<h', sample)
+            wav_file.writeframes(packed)
+            
+    print(f"Áudio gerado: {filename}")
 
 if __name__ == "__main__":
-    message = "OI"
-    if len(sys.argv) > 1:
-        message = sys.argv[1]
-        
-    bits = text_to_bits(message)
-    create_wav("tx_puro.wav", bits)
-    
+    main()
+EOF
