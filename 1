@@ -1,50 +1,52 @@
 import wave
 import struct
 import math
-import sys
 
 SAMPLE_RATE = 44100
-BIT_DURATION = 0.2  # 200ms por bit
-FREQ_0 = 1500       # Frequência para bit 0
-FREQ_1 = 2200       # Frequência para bit 1
-AMPLITUDE = 32767   # Volume máximo (16-bit signed)
+DURATION = 2.0  # 2 segundos de áudio contínuo
+AMPLITUDE_BASE = 16000
 
-def generate_tone(freq, duration, sample_rate):
-    """Gera uma lista de samples para uma onda senoidal."""
+def generate_complex_wave(duration, sample_rate):
+    """Gera uma onda composta por 3 harmônicos com fases deslocadas."""
     num_samples = int(sample_rate * duration)
     samples = []
+    
+    # Frequências da portadora e moduladoras
+    f1 = 440    # Lá (A4)
+    f2 = 880    # Uma oitava acima
+    f3 = 1320   # Quinta da oitava acima
+    
     for i in range(num_samples):
-        # Fórmula da onda senoidal: Amplitude * sin(2 * pi * freq * t)
-        sample = AMPLITUDE * math.sin(2 * math.pi * freq * i / sample_rate)
-        samples.append(int(sample))
+        t = i / sample_rate
+        
+        # Síntese aditiva: soma de 3 senoides
+        # Usamos matemática para criar interferência construtiva e destrutiva
+        s1 = math.sin(2 * math.pi * f1 * t)
+        s2 = 0.5 * math.sin(2 * math.pi * f2 * t + math.pi/4) # +45 graus de fase
+        s3 = 0.25 * math.sin(2 * math.pi * f3 * t - math.pi/2) # -90 graus de fase
+        
+        # Combinação e normalização básica para não saturar (clipar)
+        combined = (s1 + s2 + s3) / 1.75 
+        
+        sample = int(AMPLITUDE_BASE * combined)
+        samples.append(sample)
+        
     return samples
 
-def encode_bit(bit_val):
-    """Retorna os samples para um bit específico."""
-    freq = FREQ_1 if bit_val == 1 else FREQ_0
-    return generate_tone(freq, BIT_DURATION, SAMPLE_RATE)
-
 def main():
-    # Dados de exemplo: sequência de bits 1 e 0
-    data_bits = [1, 0, 1, 1, 0, 0, 1, 0]
+    all_samples = generate_complex_wave(DURATION, SAMPLE_RATE)
     
-    all_samples = []
-    for bit in data_bits:
-        all_samples.extend(encode_bit(bit))
-
-    # Salvar em arquivo WAV
-    filename = "output_audio.wav"
+    filename = "complex_audio.wav"
     with wave.open(filename, 'wb') as wav_file:
-        wav_file.setnchannels(1)  # Mono
-        wav_file.setsampwidth(2)  # 16-bit
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
         wav_file.setframerate(SAMPLE_RATE)
         
-        # Empacotar os samples em binário (short int little-endian)
         for sample in all_samples:
             packed = struct.pack('<h', sample)
             wav_file.writeframes(packed)
             
-    print(f"Áudio gerado: {filename}")
+    print(f"Áudio complexo gerado: {filename} ({len(all_samples)} samples)")
 
 if __name__ == "__main__":
     main()
