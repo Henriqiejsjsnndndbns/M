@@ -1,1 +1,1 @@
-curl -L -o ~/maps/piri_reis_raw.jpg "https://web.archive.org/web/2023/https://upload.wikimedia.org/wikipedia/commons/7/7b/Piri_Reis_map.jpg"
+python3 -c "from PIL import Image; img = Image.open('~/maps/piri_reis_raw.jpg'); print(img.size, img.format)"
