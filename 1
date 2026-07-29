@@ -1,1 +1,1 @@
-curl -A "Mozilla/5.0" -L -o /home/henry/maps/piri_reis_raw.jpg "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Piri_Reis_map.jpg/1280px-Piri_Reis_map.jpg"
+python3 -c "from PIL import Image; img = Image.open('/home/henry/maps/piri_reis_raw.jpg'); print(f'Sucesso: {img.size} {img.format}')"
