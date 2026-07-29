@@ -1,1 +1,35 @@
-wget -v -O /home/henry/maps/piri_reis_raw.jpg "https://upload.wikimedia.org/wikipedia/commons/7/7b/Piri_Reis_map.jpg" --dns-servers=1.1.1.1,1.0.0.1
+import requests
+import os
+
+urls = [
+    "https://upload.wikimedia.org/wikipedia/commons/f/fa/Piri_Reis_map_world.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/7/7f/Piri_Reis_map_fragment.jpg",
+    "https://www.loc.gov/resource/g3290.ct000457/"
+]
+
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+}
+
+output_path = "/home/henry/maps/piri_reis.jpg"
+
+for url in urls:
+    print(f"Tentando: {url}")
+    try:
+        response = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        if response.status_code == 200:
+            # Verifica se é JPEG magic number
+            if response.content[:4] in [b'\xff\xd8\xff\xe0', b'\xff\xd8\xff\xe1']:
+                with open(output_path, 'wb') as f:
+                    f.write(response.content)
+                print(f"Sucesso! Ficheiro salvo em {output_path}")
+                break
+            else:
+                print(f"Falhou: Conteúdo não é JPEG (recebido: {response.content[:20]})")
+        else:
+            print(f"Erro HTTP: {response.status_code}")
+    except Exception as e:
+        print(f"Erro de conexão: {e}")
+else:
+    print("Todas as tentativas falharam.")
+    
