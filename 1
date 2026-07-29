@@ -1,27 +1,61 @@
-import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
+import sounddevice as sd
+import time
 
-# Caminho para o mapa de Oronteus Finaeus
-image_path = "/home/henry/maps/oronteus_finaeus.jpg"
+# Configurações
+SAMPLE_RATE = 44100
+DURATION_PER_BIT = 0.1  # Segundos por bit (100ms)
+FREQ_0 = 800   # Hz para bit 0
+FREQ_1 = 1200  # Hz para bit 1
 
-def load_and_show(image_path):
-    try:
-        img = Image.open(image_path)
-        img_np = np.array(img)
-        print(f"Imagem carregada: {img.size}, Modo: {img.mode}")
+def text_to_bits(text):
+    """Converte string em lista de bits (0 ou 1)"""
+    bits = []
+    for char in text:
+        # Pega o valor ASCII e converte para 8 bits
+        val = ord(char)
+        for i in range(7, -1, -1):
+            bits.append((val >> i) & 1)
+    return bits
+
+def generate_tone(freq, duration, sample_rate):
+    """Gera um array de áudio para um tom puro"""
+    t = np.linspace(0, duration, int(sample_rate * duration), False)
+    # Onda senoidal normalizada (-1 a 1)
+    tone = np.sin(2 * np.pi * freq * t)
+    # Aplica envelope suave para evitar cliques (pop) no início/fim
+    envelope = np.hanning(len(tone))
+    return tone * envelope
+
+def transmit_text(text):
+    print(f"[TX] Iniciando transmissão: '{text}'")
+    bits = text_to_bits(text)
+    
+    audio_stream = []
+    
+    for bit in bits:
+        freq = FREQ_1 if bit == 1 else FREQ_0
+        tone = generate_tone(freq, DURATION_PER_BIT, SAMPLE_RATE)
+        audio_stream.append(tone)
+        # Debug visual no terminal
+        print(f"-> Bit: {bit} | Freq: {freq}Hz")
         
-        plt.figure(figsize=(12, 12))
-        plt.imshow(img_np)
-        plt.title("Mapa de Oronteus Finaeus (1531) - Clique para selecionar GCPs")
-        plt.axis('off')
-        plt.show()
-        return img_np
-    except Exception as e:
-        print(f"Erro ao carregar imagem: {e}")
-        return None
+    # Concatena todos os tons
+    final_audio = np.concatenate(audio_stream)
+    
+    # Toca o áudio
+    print("\n[TX] Tocando agora... (ouça o apito)")
+    sd.play(final_audio, samplerate=SAMPLE_RATE)
+    sd.wait() # Aguarda terminar de tocar
+    print("[TX] Transmissão concluída.")
 
 if __name__ == "__main__":
-    img_data = load_and_show(image_path)
+    # Mensagem a ser enviada
+    mensagem = "SKYNETchat"
     
+    try:
+        transmit_text(mensagem)
+    except Exception as e:
+        print(f"Erro: {e}")
+        print("Instale as dependências: pip install numpy sounddevice")
+        
