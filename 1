@@ -1,53 +1,147 @@
-import wave
-import struct
-import math
+import numpy as np
+from scipy.signal import convolve
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import meshio
 
-SAMPLE_RATE = 44100
-DURATION = 2.0  # 2 segundos de áudio contínuo
-AMPLITUDE_BASE = 16000
+# --- Parâmetros da Câmara do Rei (em metros) ---
+comprimento = 10.48
+largura = 5.24
+altura = 5.84
+volume = comprimento * largura * altura
 
-def generate_complex_wave(duration, sample_rate):
-    """Gera uma onda composta por 3 harmônicos com fases deslocadas."""
-    num_samples = int(sample_rate * duration)
-    samples = []
-    
-    # Frequências da portadora e moduladoras
-    f1 = 440    # Lá (A4)
-    f2 = 880    # Uma oitava acima
-    f3 = 1320   # Quinta da oitava acima
-    
-    for i in range(num_samples):
-        t = i / sample_rate
-        
-        # Síntese aditiva: soma de 3 senoides
-        # Usamos matemática para criar interferência construtiva e destrutiva
-        s1 = math.sin(2 * math.pi * f1 * t)
-        s2 = 0.5 * math.sin(2 * math.pi * f2 * t + math.pi/4) # +45 graus de fase
-        s3 = 0.25 * math.sin(2 * math.pi * f3 * t - math.pi/2) # -90 graus de fase
-        
-        # Combinação e normalização básica para não saturar (clipar)
-        combined = (s1 + s2 + s3) / 1.75 
-        
-        sample = int(AMPLITUDE_BASE * combined)
-        samples.append(sample)
-        
-    return samples
+# --- Dimensões dos Nichos (paredes leste/oeste) ---
+num_nichos = 5
+altura_nicho = 2.5
+largura_nicho = 1.0
+profundidade_nicho = 0.6
 
-def main():
-    all_samples = generate_complex_wave(DURATION, SAMPLE_RATE)
-    
-    filename = "complex_audio.wav"
-    with wave.open(filename, 'wb') as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(SAMPLE_RATE)
-        
-        for sample in all_samples:
-            packed = struct.pack('<h', sample)
-            wav_file.writeframes(packed)
-            
-    print(f"Áudio complexo gerado: {filename} ({len(all_samples)} samples)")
+# --- Malha 3D Simplificada (hex-core) ---
+# Usando coordenadas cartesianas para criar um volume retangular
+nx, ny, nz = 20, 10, 12  # Resolução da malha
+x = np.linspace(0, comprimento, nx)
+y = np.linspace(0, largura, ny)
+z = np.linspace(0, altura, nz)
 
-if __name__ == "__main__":
-    main()
-    
+# --- Definindo os 5 nichos (EIXO GEOMÉTRICO) ---
+posicao_nicho_x = np.array([1.0, 3.0, 5.0, 7.0, 9.0])  # Distribuídos na parede leste (x=comprimento)
+posicao_nicho_y = largura  # Nichos na parede leste
+
+# --- Função para mesh 3D (exportar para Paraview/Gmsh) ---
+def criar_malha_com_nichos():
+    points = []
+    cells = []
+
+    # Adiciona pontos da câmara principal
+    for zi in z:
+        for yi in y:
+            for xi in x:
+                points.append([xi, yi, zi])
+
+    # Adiciona pontos dos nichos (elementos extras)
+    for i in range(num_nichos):
+        x0 = posicao_nicho_x[i]
+        for zi in z:
+            for di in np.linspace(0, profundidade_nicho, 4):  # Malha fina nos nichos
+                points.append([x0 + di, posicao_nicho_y, zi])
+
+    # Celulas: Hexaedros para câmara, tetraedros para nichos
+    # (Este bloco simplifica para malha uniforme hexagonal)
+    cells = np.zeros((nx * ny * nz, 8), dtype=int)
+    for k in range(nz-1):
+        for j in range(ny-1):
+            for i in range(nx-1):
+                idx = i + j*nx + k*nx*ny
+                cells[idx] = [
+                    i + j*nx + (k)*nx*ny,
+                    (i+1) + j*nx + (k)*nx*ny,
+                    (i+1) + (j+1)*nx + (k)*nx*ny,
+                    i + (j+1)*nx + (k)*nx*ny,
+                    i + j*nx + (k+1)*nx*ny,
+                    (i+1) + j*nx + (k+1)*nx*ny,
+                    (i+1) + (j+1)*nx + (k+1)*nx*ny,
+                    i + (j+1)*nx + (k+1)*nx*ny,
+                ]
+
+    # Exportar malha: usar .vtk para visualização em 3D
+    mesh = meshio.Mesh(points, [("hexahedron", cells)])
+    meshio.write("camara_do_rei_malha.vtk", mesh)
+    return points, cells
+
+points, cells = criar_malha_com_nichos()
+
+# --- Simulação de Ressonância 110 Hz ---
+frequencia = 110  # Hz
+velocidade_som = 343  # m/s (ar seco)
+comprimento_onda = velocidade_som / frequencia
+
+# Função para criar onda estacionária em 3D (modo fundamental)
+def onda_estacionaria_3d(x_grid, y_grid, z_grid, frequencia):
+    Lx, Ly, Lz = x[-1], y[-1], z[-1]
+    kx = np.pi / Lx
+    ky = np.pi / Ly
+    kz = np.pi / Lz
+
+    pressure = np.zeros_like(x_grid)
+    for i, xi in enumerate(x_grid):
+        for j, yj in enumerate(y_grid):
+            for k, zk in enumerate(z_grid):
+                np.exp(1j * kx*xi) * np.exp(1j * ky*yj) * np.exp(1j * kz*zk)
+    return pressure
+
+# Grade 3D para avaliação
+X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+pressure_field = onda_estacionaria_3d(X, Y, Z, frequencia)
+
+# --- Cálculo da Amplitude da Onda (absoluto) ---
+amplitude = np.abs(pressure_field)
+max_amplitude = amplitude.max()
+amplitude_normalizada = amplitude / max_amplitude
+
+# --- Visualização 3D ---
+fig = plt.figure(figsize=(12, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+# Plotagem dos nós de pressão (antinós)
+surf = ax.scatter(
+    X.flatten(), Y.flatten(), Z.flatten(),
+    c=amplitude_normalizada.flatten(),
+    cmap='viridis', alpha=0.6, s=5
+)
+
+# Destaque dos nichos (parede leste)
+ax.vlines(
+    x=posicao_nicho_x, ymin=0, ymax=largura,
+    zmin=0, zmax=altura, colors='red', linestyles='dashed'
+)
+
+# Anotação da frequência no centro
+ax.text(5.24, 2.62, 2.92, f'110 Hz\n(Modo Fundamental)', color='white', ha='center', fontsize=10)
+
+# Configurações do gráfico
+ax.set_xlim(0, comprimento)
+ax.set_ylim(0, largura)
+ax.set_zlim(0, altura)
+ax.set_xlabel('Comprimento (m)')
+ax.set_ylabel('Largura (m)')
+ax.set_zlabel('Altura (m)')
+ax.set_title('Ressonância 3D na Câmara do Rei\nOnda Estacionária e Antinós')
+
+plt.colorbar(surf, label='Amplitude Normalizada')
+plt.savefig("ressonancia_camara_rei_3d.png", dpi=300, bbox_inches='tight')
+plt.show()
+
+# --- Cálculo da Relação de Onda (IMPORTANTE) ---
+# Razão entre o volume efetivo e os nichos
+volume_nicho = (altura_nicho * largura_nicho * profundidade_nicho) * num_nichos
+volume_efetivo = volume - volume_nicho
+razao_ressonancia = volume_efetivo / volume_nicho
+
+print(f"Volume total da câmara: {volume:.2f} m³")
+print(f"Volume dos nichos: {volume_nicho:.2f} m³")
+print(f"Volume efetivo para ressonância: {volume_efetivo:.2f} m³")
+print(f"Razão de ressonância (volume efetivo / nichos): {razao_ressonancia:.2f}")
+print(f"Comprimento de onda @110 Hz: {comprimento_onda:.3f} m")
+
+# --- Output ---
+# Vamos rodar: $ python ressonancia_camara_rei.py
