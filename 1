@@ -1,16 +1,11 @@
-        <service
-            android:name=".inject.MonitorService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+        # Crie pasta para os splits originais
+mkdir -p splits_originais
 
-        <receiver
-            android:name=".inject.BootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
-        
+# Extraia o base.apk (é o split principal)
+unzip -o bet365_original.apk -d splits_originais base.apk
+
+# Extraia os splits de configuração (se houver)
+unzip -o bet365_original.apk -d splits_originais split_config.*.apk
+
+# Extraia os splits de arquitetura (ARM, x86, etc.)
+unzip -o bet365_original.apk -d splits_originais "lib/*"
