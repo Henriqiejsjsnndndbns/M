@@ -1,11 +1,1 @@
-# 1. Baixa o base.apk
-adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/base.apk bet365_original.apk
-
-# 2. Baixa o split de arquitetura (ARM64)
-adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/split_config.arm64_v8a.apk .
-
-# 3. Baixa o split de idioma (Português)
-adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/split_config.pt.apk .
-
-# 4. Baixa o split de densidade de tela (xhdpi)
-adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/split_config.xhdpi.apk .
+openssl s_client -connect api.bet365.com:443 -showcerts </dev/null 2>/dev/null | openssl x509 -pubkey -noout > bet365_pubkey.pem
