@@ -1,2 +1,8 @@
-   adb pull /data/app/~~0Cy6W-ixsjrcv0UVWfOW6g==/com.bet365SportsBR.Bet365_Application-Cto1D6Q-ZwT8FCmGwoav6Q==/base.apk ./bet365_original.apk
-   
+   # Define o caminho correto baseado no seu find
+ALVO="bet365_desmontado/smali/com/bet365"
+
+# Cria a pasta inject dentro dela
+mkdir -p "$ALVO/inject"
+
+# Confirma que criou
+ls -la "$ALVO/inject"
