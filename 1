@@ -1,7 +1,2 @@
-   # Extração do base.apk
-   adb pull /data/app/~~0Cy6W-ixsjrcv0UVWfOW6g==/com.bet365SportsBR.Bet365_Application-Cto1D6Q-ZwT8FCmGwoav6Q==/base.apk ./samples/bet365/base.apk
-
-   # Extração dos splits (arm64_v8a, pt, xhdpi)
-   adb pull /data/app/~~0Cy6W-ixsjrcv0UVWfOW6g==/com.bet365SportsBR.Bet365_Application-Cto1D6Q-ZwT8FCmGwoav6Q==/split_config.arm64_v8a.apk ./samples/bet365/split_config.arm64_v8a.apk
-   adb pull /data/app/~~0Cy6W-ixsjrcv0UVWfOW6g==/com.bet365SportsBR.Bet365_Application-Cto16Q-ZwT8FCmGwoav6Q==/split_config.pt.apk ./samples/bet365/split_config.pt.apk
-   adb pull /data/app/~~0Cy6W-ixsjrcv0UVWfOW6g==/com.bet365SportsBR.Bet365_Application-Cto1D6Q-ZwT8FCmGwoav6Q==/split_config.xhdpi.apk ./samples/bet365/split_config.xhdpi.apk
+   adb shell pm path com.bet365SportsBR.Bet365_Application
+adb pull /data/app/~~0Cy6W-ixsjrcv0UVWfOW6g==/com.bet365SportsBR.Bet365_Application-Cto1D6Q-ZwT8FCmGwoav6Q==/base.apk ./bet365_original.apk
