@@ -1,5 +1,11 @@
-# Liste os pacotes para confirmar o nome exato
-adb shell pm list packages | grep bet365
+# 1. Baixa o base.apk
+adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/base.apk bet365_original.apk
 
-# Puxe o APK base (substitua pelo nome correto se for diferente)
-adb pull /data/app/~~[hash]/com.bet365SportsBR.Bet365_Application-[hash]/base.apk bet365_original.apk
+# 2. Baixa o split de arquitetura (ARM64)
+adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/split_config.arm64_v8a.apk .
+
+# 3. Baixa o split de idioma (Português)
+adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/split_config.pt.apk .
+
+# 4. Baixa o split de densidade de tela (xhdpi)
+adb pull /data/app/~~BGY7VOUSlIskTm4W3jlMNA==/com.bet365SportsBR.Bet365_Application-VO4FmLWHUtQXALNeoKwuSA==/split_config.xhdpi.apk .
