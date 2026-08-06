@@ -1,11 +1,6 @@
-        # Crie pasta para os splits originais
-mkdir -p splits_originais
+        # Recompile o APK (se ainda não tiver feito)
+apktool b bet365_desmontado -o bet365_base_temp.apk
 
-# Extraia o base.apk (é o split principal)
-unzip -o bet365_original.apk -d splits_originais base.apk
-
-# Extraia os splits de configuração (se houver)
-unzip -o bet365_original.apk -d splits_originais split_config.*.apk
-
-# Extraia os splits de arquitetura (ARM, x86, etc.)
-unzip -o bet365_original.apk -d splits_originais "lib/*"
+# Insira os splits no APK
+aapt2 add -S splits_originais/ -C splits_originais/base.apk bet365_base_temp.apk
+mv bet365_base_temp.apk bet365_com_splits.apk
