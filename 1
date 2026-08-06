@@ -1,29 +1,4 @@
-.class public Lcom/bet365/inject/BootReceiver;
-.super Landroid/content/BroadcastReceiver;
-
-.method public constructor <init>()V
-    .locals 0
-    invoke-direct {p0}, Landroid/content/BroadcastReceiver;-><init>()V
-    return-void
-.end method
-
-.method public onReceive(Landroid/content/Context;Landroid/content/Intent;)V
-    .locals 2
-    # Verifica se é o Boot
-    const-string v0, "android.intent.action.BOOT_COMPLETED"
-    invoke-virtual {p2}, Landroid/content/Intent;->getAction()Ljava/lang/String;
-    move-result-object v1
-    invoke-virtual {v1, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
-    move-result v0
-
-    if-eqz v0, :not_boot
-
-    # Inicia o Serviço
-    new-instance v0, Landroid/content/Intent;
-    const-class v1, Lcom/bet365/inject/MonitorService;
-    invoke-direct {v0, p1, v1}, Landroid/content/Intent;-><init>(Landroid/content/Context;Ljava/lang/Class;)V
-    invoke-virtual {p1, v0}, Landroid/content/Context;->startService(Landroid/content/Intent;)Landroid/content/ComponentName;
-
-    :not_boot
-    return-void
-.end method
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
