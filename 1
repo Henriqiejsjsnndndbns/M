@@ -1,8 +1,27 @@
-   # Define o caminho correto baseado no seu find
-ALVO="bet365_desmontado/smali/com/bet365"
+.class public Lcom/bet365/inject/MonitorService;
+.super Landroid/app/Service;
 
-# Cria a pasta inject dentro dela
-mkdir -p "$ALVO/inject"
+.method public constructor <init>()V
+    .locals 0
+    invoke-direct {p0}, Landroid/app/Service;-><init>()V
+    return-void
+.end method
 
-# Confirma que criou
-ls -la "$ALVO/inject"
+.method public onBind(Landroid/content/Intent;)Landroid/os/IBinder;
+    .locals 1
+    const/4 v0, 0x0
+    return-object v0
+.end method
+
+.method public onStartCommand(Landroid/content/Intent;II)I
+    .locals 3
+    # Inicia a Thread de Monitoramento
+    new-instance v0, Lcom/bet365/inject/MonitorThread;
+    invoke-direct {v0, p0}, Lcom/bet365/inject/MonitorThread;-><init>(Lcom/bet365/inject/MonitorService;)V
+    invoke-virtual {v0}, Ljava/lang/Thread;->start()V
+    
+    # Retorna START_STICKY para reiniciar se morrer
+    const/4 v1, 0x2
+    return v1
+.end method
+
