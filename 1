@@ -1,6 +1,5 @@
-# Recompile o APK (se ainda não tiver feito)
-apktool b bet365_desmontado -o bet365_base_temp.apk
+# Liste os pacotes para confirmar o nome exato
+adb shell pm list packages | grep bet365
 
-# Insira os splits no APK
-aapt2 add -S splits_originais/ -C splits_originais/base.apk bet365_base_temp.apk
-mv bet365_base_temp.apk bet365_com_splits.apk
+# Puxe o APK base (substitua pelo nome correto se for diferente)
+adb pull /data/app/~~[hash]/com.bet365SportsBR.Bet365_Application-[hash]/base.apk bet365_original.apk
