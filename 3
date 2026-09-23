@@ -1,0 +1,837 @@
+#include <Arduino.h>
+#include <WiFi.h>
+
+#include "esp_system.h"
+#include "esp_chip_info.h"
+#include "esp_partition.h"
+#include "esp_mac.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+#include "soc/soc_caps.h"
+
+// ============================================================
+// CONFIGURAÇÃO
+// ============================================================
+
+static const uint32_t STATUS_INTERVAL_MS = 5000;
+
+// ============================================================
+// FUNÇÕES AUXILIARES
+// ============================================================
+
+void titulo(const char *texto) {
+    Serial.println();
+    Serial.println("============================================================");
+    Serial.println(texto);
+    Serial.println("============================================================");
+}
+
+void linha() {
+    Serial.println("------------------------------------------------------------");
+}
+
+const char *resetReasonName(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_UNKNOWN:
+            return "UNKNOWN";
+
+        case ESP_RST_POWERON:
+            return "POWER-ON";
+
+        case ESP_RST_EXT:
+            return "EXTERNAL RESET";
+
+        case ESP_RST_SW:
+            return "SOFTWARE RESET";
+
+        case ESP_RST_PANIC:
+            return "PANIC / CRASH";
+
+        case ESP_RST_INT_WDT:
+            return "INTERRUPT WATCHDOG";
+
+        case ESP_RST_TASK_WDT:
+            return "TASK WATCHDOG";
+
+        case ESP_RST_WDT:
+            return "WATCHDOG";
+
+        case ESP_RST_DEEPSLEEP:
+            return "DEEP SLEEP";
+
+        case ESP_RST_BROWNOUT:
+            return "BROWNOUT / QUEDA DE TENSÃO";
+
+        case ESP_RST_SDIO:
+            return "SDIO RESET";
+
+        default:
+            return "OUTRO / DESCONHECIDO";
+    }
+}
+
+const char *partitionTypeName(uint8_t type) {
+    switch (type) {
+        case ESP_PARTITION_TYPE_APP:
+            return "APP";
+
+        case ESP_PARTITION_TYPE_DATA:
+            return "DATA";
+
+        default:
+            return "OUTRO";
+    }
+}
+
+const char *partitionDataSubtypeName(uint8_t subtype) {
+    switch (subtype) {
+        case ESP_PARTITION_SUBTYPE_DATA_OTA:
+            return "OTA DATA";
+
+        case ESP_PARTITION_SUBTYPE_DATA_PHY:
+            return "PHY";
+
+        case ESP_PARTITION_SUBTYPE_DATA_NVS:
+            return "NVS";
+
+        default:
+            return "DATA / OUTRO";
+    }
+}
+
+const char *partitionAppSubtypeName(uint8_t subtype) {
+    switch (subtype) {
+        case ESP_PARTITION_SUBTYPE_APP_FACTORY:
+            return "FACTORY";
+
+        case ESP_PARTITION_SUBTYPE_APP_OTA_0:
+            return "OTA_0";
+
+        case ESP_PARTITION_SUBTYPE_APP_OTA_1:
+            return "OTA_1";
+
+        case ESP_PARTITION_SUBTYPE_APP_OTA_2:
+            return "OTA_2";
+
+        default:
+            return "APP / OUTRO";
+    }
+}
+
+// ============================================================
+// CHIP
+// ============================================================
+
+void diagnosticoChip() {
+    titulo("1. IDENTIFICAÇÃO DO CHIP");
+
+    esp_chip_info_t chipInfo;
+    esp_chip_info(&chipInfo);
+
+    Serial.print("Modelo: ");
+    Serial.println(ESP.getChipModel());
+
+    Serial.print("Revisão: ");
+    Serial.println(ESP.getChipRevision());
+
+    Serial.print("Núcleos: ");
+    Serial.println(chipInfo.cores);
+
+    Serial.print("CPU atual: ");
+    Serial.print(getCpuFrequencyMhz());
+    Serial.println(" MHz");
+
+    Serial.print("Arduino Core: ");
+    Serial.println(ESP_ARDUINO_VERSION_STR);
+
+    Serial.print("ESP-IDF: ");
+    Serial.println(ESP.getSdkVersion());
+
+    Serial.print("Chip features bitmask: 0x");
+    Serial.println(chipInfo.features, HEX);
+
+    Serial.print("Wi-Fi 2.4 GHz: ");
+    Serial.println(
+        (chipInfo.features & CHIP_FEATURE_WIFI_BGN) ? "SIM" : "NAO"
+    );
+
+    Serial.print("Bluetooth LE: ");
+    Serial.println(
+        (chipInfo.features & CHIP_FEATURE_BLE) ? "SIM" : "NAO"
+    );
+
+    Serial.print("Bluetooth Classic: ");
+    Serial.println(
+        (chipInfo.features & CHIP_FEATURE_BT) ? "SIM" : "NAO"
+    );
+
+    Serial.print("PSRAM integrada/reconhecida pelo chip: ");
+    Serial.println(
+        (chipInfo.features & CHIP_FEATURE_EMB_PSRAM) ? "SIM" : "NAO"
+    );
+
+    Serial.print("Flash integrada ao chip: ");
+    Serial.println(
+        (chipInfo.features & CHIP_FEATURE_EMB_FLASH) ? "SIM" : "NAO"
+    );
+
+    Serial.print("IEEE 802.15.4: ");
+    Serial.println(
+        (chipInfo.features & CHIP_FEATURE_IEEE802154) ? "SIM" : "NAO"
+    );
+}
+
+// ============================================================
+// FLASH
+// ============================================================
+
+void diagnosticoFlash() {
+    titulo("2. FLASH");
+
+    uint32_t flashSize = ESP.getFlashChipSize();
+    uint32_t flashRealSize = ESP.getFlashChipRealSize();
+    uint32_t flashSpeed = ESP.getFlashChipSpeed();
+
+    Serial.print("Flash declarada pelo sistema: ");
+    Serial.print(flashSize / (1024 * 1024));
+    Serial.println(" MB");
+
+    Serial.print("Flash real detectada: ");
+    Serial.print(flashRealSize / (1024 * 1024));
+    Serial.println(" MB");
+
+    Serial.print("Velocidade Flash: ");
+    Serial.print(flashSpeed / 1000000);
+    Serial.println(" MHz");
+
+    Serial.print("Modo Flash (codigo numerico): ");
+    Serial.println((int)ESP.getFlashChipMode());
+
+    Serial.print("Tamanho do firmware atual: ");
+    Serial.print(ESP.getSketchSize());
+    Serial.println(" bytes");
+
+    Serial.print("Espaco livre para firmware: ");
+    Serial.print(ESP.getFreeSketchSpace());
+    Serial.println(" bytes");
+}
+
+// ============================================================
+// PARTIÇÕES
+// ============================================================
+
+void diagnosticoParticoes() {
+    titulo("3. TABELA DE PARTIÇÕES");
+
+    Serial.println(
+        "Esta leitura apenas consulta a tabela. Nenhuma partição será alterada."
+    );
+
+    esp_partition_iterator_t iterator =
+        esp_partition_find(
+            ESP_PARTITION_TYPE_ANY,
+            ESP_PARTITION_SUBTYPE_ANY,
+            NULL
+        );
+
+    if (iterator == NULL) {
+        Serial.println("Nenhuma partição encontrada.");
+        return;
+    }
+
+    int contador = 0;
+
+    while (iterator != NULL) {
+        const esp_partition_t *part = esp_partition_get(iterator);
+
+        if (part != NULL) {
+            contador++;
+
+            Serial.print("#");
+            Serial.println(contador);
+
+            Serial.print("  Label: ");
+            Serial.println(part->label);
+
+            Serial.print("  Tipo: ");
+            Serial.println(partitionTypeName(part->type));
+
+            Serial.print("  Subtipo: ");
+            if (part->type == ESP_PARTITION_TYPE_APP) {
+                Serial.println(partitionAppSubtypeName(part->subtype));
+            } else if (part->type == ESP_PARTITION_TYPE_DATA) {
+                Serial.println(partitionDataSubtypeName(part->subtype));
+            } else {
+                Serial.println("OUTRO");
+            }
+
+            Serial.print("  Endereco: 0x");
+            Serial.println(part->address, HEX);
+
+            Serial.print("  Tamanho: ");
+            Serial.print(part->size);
+            Serial.println(" bytes");
+
+            Serial.print("  Read-only: ");
+            Serial.println(part->readonly ? "SIM" : "NAO");
+
+            Serial.println();
+        }
+
+        iterator = esp_partition_next(iterator);
+    }
+
+    esp_partition_iterator_release(iterator);
+}
+
+// ============================================================
+// PSRAM
+// ============================================================
+
+void testePSRAM() {
+    titulo("4. PSRAM");
+
+    size_t total = ESP.getPsramSize();
+
+    if (total == 0) {
+        Serial.println("PSRAM: NAO DETECTADA");
+        return;
+    }
+
+    Serial.println("PSRAM: DETECTADA");
+
+    Serial.print("Total: ");
+    Serial.print(total / 1024);
+    Serial.println(" KB");
+
+    Serial.print("Livre: ");
+    Serial.print(ESP.getFreePsram() / 1024);
+    Serial.println(" KB");
+
+    Serial.print("Maior bloco livre: ");
+    Serial.print(
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)
+    );
+    Serial.println(" bytes");
+
+    // Teste pequeno, temporário e somente em RAM.
+    const size_t testeTamanho = 128;
+
+    uint8_t *buffer = static_cast<uint8_t *>(
+        ps_malloc(testeTamanho)
+    );
+
+    if (buffer == nullptr) {
+        Serial.println("Teste PSRAM: FALHA AO ALOCAR 128 bytes");
+        return;
+    }
+
+    for (size_t i = 0; i < testeTamanho; i++) {
+        buffer[i] = static_cast<uint8_t>(i ^ 0x5A);
+    }
+
+    bool sucesso = true;
+
+    for (size_t i = 0; i < testeTamanho; i++) {
+        if (buffer[i] != static_cast<uint8_t>(i ^ 0x5A)) {
+            sucesso = false;
+            break;
+        }
+    }
+
+    free(buffer);
+
+    Serial.print("Teste temporário leitura/escrita PSRAM: ");
+    Serial.println(sucesso ? "OK" : "FALHA");
+}
+
+// ============================================================
+// HEAP / RAM
+// ============================================================
+
+void diagnosticoHeap() {
+    titulo("5. RAM / HEAP");
+
+    Serial.print("Heap total Arduino: ");
+    Serial.print(ESP.getHeapSize());
+    Serial.println(" bytes");
+
+    Serial.print("Heap livre: ");
+    Serial.print(ESP.getFreeHeap());
+    Serial.println(" bytes");
+
+    Serial.print("Menor heap histórico: ");
+    Serial.print(ESP.getMinFreeHeap());
+    Serial.println(" bytes");
+
+    Serial.print("Maior bloco livre interno: ");
+    Serial.print(
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)
+    );
+    Serial.println(" bytes");
+
+    Serial.print("RAM interna total: ");
+    Serial.print(
+        heap_caps_get_total_size(MALLOC_CAP_INTERNAL)
+    );
+    Serial.println(" bytes");
+
+    Serial.print("RAM interna livre: ");
+    Serial.print(
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL)
+    );
+    Serial.println(" bytes");
+
+    Serial.print("RAM interna menor livre histórico: ");
+    Serial.print(
+        heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)
+    );
+    Serial.println(" bytes");
+
+    Serial.print("Maior bloco PSRAM: ");
+    Serial.print(
+        heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)
+    );
+    Serial.println(" bytes");
+}
+
+// ============================================================
+// RESET
+// ============================================================
+
+void diagnosticoReset() {
+    titulo("6. RESET");
+
+    esp_reset_reason_t reason = esp_reset_reason();
+
+    Serial.print("Codigo: ");
+    Serial.println((int)reason);
+
+    Serial.print("Motivo: ");
+    Serial.println(resetReasonName(reason));
+}
+
+// ============================================================
+// MAC
+// ============================================================
+
+void imprimirMAC(const uint8_t *mac) {
+    for (int i = 0; i < 6; i++) {
+        if (i > 0) {
+            Serial.print(":");
+        }
+
+        if (mac[i] < 16) {
+            Serial.print("0");
+        }
+
+        Serial.print(mac[i], HEX);
+    }
+
+    Serial.println();
+}
+
+void diagnosticoMAC() {
+    titulo("7. IDENTIFICAÇÃO / MAC");
+
+    uint8_t mac[6];
+
+    esp_err_t resultado =
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    Serial.print("MAC Wi-Fi STA: ");
+
+    if (resultado == ESP_OK) {
+        imprimirMAC(mac);
+    } else {
+        Serial.println("NAO DISPONIVEL");
+    }
+
+    WiFi.mode(WIFI_STA);
+
+    Serial.print("Wi-Fi MAC via Arduino: ");
+    Serial.println(WiFi.macAddress());
+
+    Serial.print("AP MAC via Arduino: ");
+    Serial.println(WiFi.softAPmacAddress());
+
+    Serial.print("MAC bruto: ");
+    if (resultado == ESP_OK) {
+        imprimirMAC(mac);
+    }
+}
+
+// ============================================================
+// WI-FI
+// ============================================================
+
+void diagnosticoWiFi() {
+    titulo("8. WI-FI");
+
+    Serial.println("Nenhuma conexão será feita.");
+    Serial.println("Somente será executado um scan.");
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true, false);
+
+    delay(500);
+
+    int quantidade = WiFi.scanNetworks(
+        false,
+        true,
+        false,
+        300
+    );
+
+    if (quantidade < 0) {
+        Serial.println("Falha no scan Wi-Fi.");
+        return;
+    }
+
+    Serial.print("Redes encontradas: ");
+    Serial.println(quantidade);
+
+    for (int i = 0; i < quantidade; i++) {
+
+        Serial.print("#");
+        Serial.println(i + 1);
+
+        Serial.print("  SSID: ");
+        Serial.println(WiFi.SSID(i));
+
+        Serial.print("  RSSI: ");
+        Serial.print(WiFi.RSSI(i));
+        Serial.println(" dBm");
+
+        Serial.print("  Canal: ");
+        Serial.println(WiFi.channel(i));
+
+        Serial.print("  Criptografia: ");
+        Serial.println(WiFi.encryptionType(i));
+
+        Serial.print("  BSSID: ");
+        Serial.println(WiFi.BSSIDstr(i));
+
+        Serial.println();
+    }
+
+    WiFi.scanDelete();
+}
+
+// ============================================================
+// BLUETOOTH
+// ============================================================
+
+void diagnosticoBluetooth() {
+    titulo("9. BLUETOOTH");
+
+    esp_chip_info_t chipInfo;
+    esp_chip_info(&chipInfo);
+
+    bool ble =
+        (chipInfo.features & CHIP_FEATURE_BLE);
+
+    bool classic =
+        (chipInfo.features & CHIP_FEATURE_BT);
+
+    Serial.print("Bluetooth LE suportado pelo chip: ");
+    Serial.println(ble ? "SIM" : "NAO");
+
+    Serial.print("Bluetooth Classic suportado pelo chip: ");
+    Serial.println(classic ? "SIM" : "NAO");
+
+    Serial.println(
+        "Nenhum pareamento, advertising ou conexão será iniciado."
+    );
+}
+
+// ============================================================
+// USB
+// ============================================================
+
+void diagnosticoUSB() {
+    titulo("10. USB");
+
+#if SOC_USB_OTG_SUPPORTED
+    Serial.println("USB OTG nativo: SUPORTADO");
+#else
+    Serial.println("USB OTG nativo: NAO REPORTADO");
+#endif
+
+#if SOC_USB_SERIAL_JTAG_SUPPORTED
+    Serial.println("USB Serial/JTAG nativo: SUPORTADO");
+#else
+    Serial.println("USB Serial/JTAG nativo: NAO REPORTADO");
+#endif
+
+    Serial.println();
+    Serial.println(
+        "ATENCAO: o CH343P é um conversor USB/serial externo da placa."
+    );
+
+    Serial.println(
+        "O firmware não consegue confirmar eletricamente o CH343P."
+    );
+
+    Serial.println(
+        "Também não consegue medir a tensão VBUS/5V fisicamente."
+    );
+}
+
+// ============================================================
+// GPIO
+// ============================================================
+
+void diagnosticoGPIO() {
+    titulo("11. GPIO");
+
+    Serial.println(
+        "NENHUM GPIO será configurado, alterado ou acionado."
+    );
+
+    Serial.println();
+    Serial.println(
+        "GPIO | VALIDO NO CHIP"
+    );
+
+    Serial.println(
+        "----------------------"
+    );
+
+    for (int gpio = 0; gpio <= 48; gpio++) {
+
+        bool valido = GPIO_IS_VALID_GPIO(gpio);
+
+        Serial.print("GPIO");
+        if (gpio < 10) {
+            Serial.print(" ");
+        }
+
+        Serial.print(gpio);
+        Serial.print(" | ");
+        Serial.println(valido ? "SIM" : "NAO");
+    }
+
+    Serial.println();
+    Serial.println(
+        "A presença física de um GPIO na placa NÃO é determinada por este teste."
+    );
+
+    Serial.println(
+        "A função efetiva também depende do circuito da placa."
+    );
+}
+
+// ============================================================
+// ADC
+// ============================================================
+
+void diagnosticoADC() {
+    titulo("12. ADC");
+
+    Serial.println(
+        "O ADC não será conectado nem configurado automaticamente."
+    );
+
+    Serial.println(
+        "O ESP32-S3 possui ADC, mas NÃO deve receber 5 V diretamente em entrada ADC."
+    );
+
+    Serial.println();
+    Serial.println(
+        "TESTE EXTERNO NECESSARIO para medir tensões reais."
+    );
+
+    Serial.println(
+        "Para medir 5 V com ADC é necessário divisor resistivo adequado."
+    );
+
+#if SOC_ADC_SUPPORTED
+    Serial.println("ADC: SUPORTADO PELO SOC");
+#else
+    Serial.println("ADC: NAO REPORTADO");
+#endif
+}
+
+// ============================================================
+// PWM / LEDC
+// ============================================================
+
+void diagnosticoPWM() {
+    titulo("13. PWM / LEDC");
+
+    Serial.println(
+        "LEDC/PWM será apenas identificado."
+    );
+
+    Serial.println(
+        "Nenhum canal ou GPIO será ativado."
+    );
+
+#if SOC_LEDC_SUPPORTED
+    Serial.println("LEDC: SUPORTADO");
+#else
+    Serial.println("LEDC: NAO REPORTADO");
+#endif
+}
+
+// ============================================================
+// I2C
+// ============================================================
+
+void diagnosticoI2C() {
+    titulo("14. I2C");
+
+#if SOC_I2C_SUPPORTED
+    Serial.println("Controlador I2C: SUPORTADO");
+#else
+    Serial.println("Controlador I2C: NAO REPORTADO");
+#endif
+
+    Serial.println(
+        "Nenhum scan I2C será executado."
+    );
+}
+
+// ============================================================
+// SPI
+// ============================================================
+
+void diagnosticoSPI() {
+    titulo("15. SPI");
+
+#if SOC_SPI_SUPPORTED
+    Serial.println("SPI: SUPORTADO");
+#else
+    Serial.println("SPI: NAO REPORTADO");
+#endif
+
+    Serial.println(
+        "Nenhum dispositivo externo será acessado."
+    );
+}
+
+// ============================================================
+// UART
+// ============================================================
+
+void diagnosticoUART() {
+    titulo("16. UART");
+
+#if SOC_UART_SUPPORTED
+    Serial.println("UART: SUPORTADA");
+#else
+    Serial.println("UART: NAO REPORTADA");
+#endif
+
+    Serial.println(
+        "A UART usada pelo monitor não será alterada."
+    );
+}
+
+// ============================================================
+// CLOCK / TIMER
+// ============================================================
+
+void diagnosticoClock() {
+    titulo("17. CLOCK / TIMER");
+
+    Serial.print("CPU: ");
+    Serial.print(getCpuFrequencyMhz());
+    Serial.println(" MHz");
+
+    Serial.print("millis(): ");
+    Serial.println(millis());
+
+    Serial.print("micros(): ");
+    Serial.println(micros());
+
+    Serial.print("esp_timer_get_time(): ");
+    Serial.print(esp_timer_get_time());
+    Serial.println(" us");
+}
+
+// ============================================================
+// TEMPERATURA
+// ============================================================
+
+void diagnosticoTemperatura() {
+    titulo("18. TEMPERATURA INTERNA");
+
+    float temperatura = temperatureRead();
+
+    if (isnan(temperatura)) {
+        Serial.println(
+            "Leitura indisponível."
+        );
+        return;
+    }
+
+    Serial.print("Temperatura interna aproximada: ");
+    Serial.print(temperatura, 2);
+    Serial.println(" °C");
+
+    Serial.println();
+    Serial.println(
+        "Esse sensor mede a temperatura do silício."
+    );
+
+    Serial.println(
+        "Não deve ser tratado como termômetro ambiente de precisão."
+    );
+}
+
+// ============================================================
+// WATCHDOG
+// ============================================================
+
+void diagnosticoWatchdog() {
+    titulo("19. WATCHDOG");
+
+    Serial.println(
+        "O diagnóstico NÃO inicializa watchdog."
+    );
+
+    Serial.println(
+        "O objetivo aqui é não provocar reset propositalmente."
+    );
+
+    Serial.println(
+        "Watchdog suportado pelo sistema ESP-IDF/ESP32-S3."
+    );
+
+    Serial.println(
+        "Estado detalhado não será alterado nem forçado."
+    );
+}
+
+// ============================================================
+// NVS
+// ============================================================
+
+void diagnosticoNVS() {
+    titulo("20. NVS");
+
+    nvs_stats_t stats;
+
+    esp_err_t resultado =
+        nvs_get_stats(NULL, &stats);
+
+    if (resultado != ESP_OK) {
+
+        Serial.print(
+            "NVS stats indisponíveis. Codigo ESP_ERR: "
+        );
+
+        Serial.println(resultado);
+
+        Serial.println(
+            "Nenhum dado foi escrito ou apagado."
+        );
+
+        return;
+    }
+
+    Seri
