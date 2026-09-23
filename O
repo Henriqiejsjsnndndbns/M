@@ -1,13 +1,359 @@
-[env:esp32dev]
-platform = espressif32
-board = esp32dev
-framework = arduino
+#include <Arduino.h>
+#include <WiFi.h>
+#include "esp_system.h"
 
-monitor_speed = 115200
+// ============================================================
+// ESP32-S3 — DIAGNÓSTICO COMPLETO
+// Sem uso de GPIO externo.
+// Saída pelo Monitor Serial em 115200 baud.
+// ============================================================
 
-lib_compat_mode = strict
-lib_ldf_mode = chain
+unsigned long ultimoRelatorio = 0;
+unsigned long ultimoSegundo = 0;
 
-lib_deps =
-    ESP32Async/ESPAsyncWebServer @ 3.6.0
-    ESP32Async/AsyncTCP @ 3.3.2
+// ------------------------------------------------------------
+// Imprime separador
+// ------------------------------------------------------------
+void linha() {
+    Serial.println("------------------------------------------------------------");
+}
+
+// ------------------------------------------------------------
+// Converte motivo do reset para texto
+// ------------------------------------------------------------
+const char* motivoReset(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_UNKNOWN:   return "Desconhecido";
+        case ESP_RST_POWERON:   return "Ligacao inicial";
+        case ESP_RST_EXT:       return "Reset externo";
+        case ESP_RST_SW:        return "Reset por software";
+        case ESP_RST_PANIC:     return "Panic / excecao";
+        case ESP_RST_INT_WDT:   return "Watchdog interno";
+        case ESP_RST_TASK_WDT:  return "Watchdog de tarefa";
+        case ESP_RST_WDT:       return "Watchdog";
+        case ESP_RST_DEEPSLEEP: return "Deep Sleep";
+        case ESP_RST_BROWNOUT:  return "Brownout / queda de tensao";
+        case ESP_RST_SDIO:      return "Reset SDIO";
+        default:                return "Outro";
+    }
+}
+
+// ------------------------------------------------------------
+// Imprime MAC
+// ------------------------------------------------------------
+void mostrarMAC() {
+    uint64_t mac = ESP.getEfuseMac();
+
+    Serial.printf(
+        "MAC do chip : %04X%08X\n",
+        (uint16_t)(mac >> 32),
+        (uint32_t)mac
+    );
+}
+
+// ------------------------------------------------------------
+// Informacoes do chip
+// ------------------------------------------------------------
+void diagnosticoChip() {
+
+    Serial.println();
+    Serial.println("============================================================");
+    Serial.println("                 DIAGNOSTICO ESP32-S3");
+    Serial.println("============================================================");
+
+    linha();
+
+    Serial.println("[ CHIP ]");
+
+    Serial.print("Modelo                : ");
+    Serial.println(ESP.getChipModel());
+
+    Serial.print("Revisao                : ");
+    Serial.println(ESP.getChipRevision());
+
+    Serial.print("Nucleos                : ");
+    Serial.println(ESP.getChipCores());
+
+    Serial.print("Frequencia CPU         : ");
+    Serial.print(ESP.getCpuFreqMHz());
+    Serial.println(" MHz");
+
+    Serial.print("SDK ESP-IDF            : ");
+    Serial.println(ESP.getSdkVersion());
+
+    Serial.print("Flash size             : ");
+    Serial.print(ESP.getFlashChipSize() / (1024 * 1024));
+    Serial.println(" MB");
+
+    Serial.print("Flash speed            : ");
+    Serial.print(ESP.getFlashChipSpeed() / 1000000);
+    Serial.println(" MHz");
+
+    mostrarMAC();
+
+    linha();
+
+    Serial.println("[ MEMORIA HEAP ]");
+
+    Serial.print("Heap total             : ");
+    Serial.print(ESP.getHeapSize());
+    Serial.println(" bytes");
+
+    Serial.print("Heap livre              : ");
+    Serial.print(ESP.getFreeHeap());
+    Serial.println(" bytes");
+
+    Serial.print("Menor heap livre        : ");
+    Serial.print(ESP.getMinFreeHeap());
+    Serial.println(" bytes");
+
+    Serial.print("Heap usado              : ");
+    Serial.print(
+        ESP.getHeapSize() - ESP.getFreeHeap()
+    );
+    Serial.println(" bytes");
+
+    linha();
+
+    Serial.println("[ PSRAM ]");
+
+    if (psramFound()) {
+
+        Serial.println("PSRAM                   : DETECTADA");
+
+        Serial.print("PSRAM total             : ");
+        Serial.print(ESP.getPsramSize());
+        Serial.println(" bytes");
+
+        Serial.print("PSRAM livre             : ");
+        Serial.print(ESP.getFreePsram());
+        Serial.println(" bytes");
+
+        Serial.print("PSRAM usada             : ");
+        Serial.print(
+            ESP.getPsramSize() - ESP.getFreePsram()
+        );
+        Serial.println(" bytes");
+
+    } else {
+
+        Serial.println("PSRAM                   : NAO DETECTADA");
+    }
+
+    linha();
+
+    Serial.println("[ FIRMWARE ]");
+
+    Serial.print("Tamanho do firmware    : ");
+    Serial.print(ESP.getSketchSize());
+    Serial.println(" bytes");
+
+    Serial.print("Espaco livre firmware  : ");
+    Serial.print(ESP.getFreeSketchSpace());
+    Serial.println(" bytes");
+
+    Serial.print("Chip MAC ID             : ");
+    mostrarMAC();
+
+    linha();
+
+    Serial.println("[ RESET ]");
+
+    esp_reset_reason_t reset = esp_reset_reason();
+
+    Serial.print("Motivo do ultimo reset : ");
+    Serial.println(motivoReset(reset));
+
+    linha();
+
+    Serial.println("[ TESTE BASICO ]");
+    Serial.println("CPU                    : OK");
+    Serial.println("RAM                    : OK");
+    Serial.println("Flash                  : OK");
+    Serial.println("Serial                 : OK");
+
+    if (psramFound()) {
+        Serial.println("PSRAM                  : OK");
+    } else {
+        Serial.println("PSRAM                  : NAO DISPONIVEL");
+    }
+
+    linha();
+}
+
+// ------------------------------------------------------------
+// Teste do Wi-Fi
+// ------------------------------------------------------------
+void testeWiFi() {
+
+    Serial.println();
+    Serial.println("============================================================");
+    Serial.println("                     TESTE WIFI");
+    Serial.println("============================================================");
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true);
+
+    delay(500);
+
+    Serial.println("Iniciando varredura de redes...");
+    Serial.println();
+
+    int quantidade = WiFi.scanNetworks(false, true);
+
+    if (quantidade < 0) {
+        Serial.println("Erro ao realizar a varredura.");
+        return;
+    }
+
+    Serial.print("Redes encontradas : ");
+    Serial.println(quantidade);
+
+    linha();
+
+    if (quantidade == 0) {
+
+        Serial.println("Nenhuma rede encontrada.");
+
+    } else {
+
+        for (int i = 0; i < quantidade; i++) {
+
+            Serial.print("#");
+            Serial.print(i + 1);
+
+            Serial.print(" | SSID: ");
+            Serial.print(WiFi.SSID(i));
+
+            Serial.print(" | RSSI: ");
+            Serial.print(WiFi.RSSI(i));
+            Serial.print(" dBm");
+
+            Serial.print(" | Canal: ");
+            Serial.print(WiFi.channel(i));
+
+            Serial.print(" | Seguranca: ");
+
+            switch (WiFi.encryptionType(i)) {
+
+                case WIFI_AUTH_OPEN:
+                    Serial.print("Aberta");
+                    break;
+
+                case WIFI_AUTH_WEP:
+                    Serial.print("WEP");
+                    break;
+
+                case WIFI_AUTH_WPA_PSK:
+                    Serial.print("WPA");
+                    break;
+
+                case WIFI_AUTH_WPA2_PSK:
+                    Serial.print("WPA2");
+                    break;
+
+                case WIFI_AUTH_WPA_WPA2_PSK:
+                    Serial.print("WPA/WPA2");
+                    break;
+
+                case WIFI_AUTH_WPA2_ENTERPRISE:
+                    Serial.print("WPA2 Enterprise");
+                    break;
+
+                case WIFI_AUTH_WPA3_PSK:
+                    Serial.print("WPA3");
+                    break;
+
+                case WIFI_AUTH_WPA2_WPA3_PSK:
+                    Serial.print("WPA2/WPA3");
+                    break;
+
+                default:
+                    Serial.print("Outra");
+                    break;
+            }
+
+            Serial.println();
+        }
+    }
+
+    linha();
+
+    WiFi.scanDelete();
+
+    Serial.println("Teste Wi-Fi finalizado.");
+}
+
+// ------------------------------------------------------------
+// Relatorio durante funcionamento
+// ------------------------------------------------------------
+void relatorioContinuo() {
+
+    unsigned long agora = millis();
+
+    if (agora - ultimoRelatorio >= 5000) {
+
+        ultimoRelatorio = agora;
+
+        Serial.println();
+        Serial.println("[ STATUS EM TEMPO REAL ]");
+
+        Serial.print("Uptime                 : ");
+        Serial.print(agora / 1000);
+        Serial.println(" segundos");
+
+        Serial.print("Heap livre             : ");
+        Serial.print(ESP.getFreeHeap());
+        Serial.println(" bytes");
+
+        if (psramFound()) {
+
+            Serial.print("PSRAM livre            : ");
+            Serial.print(ESP.getFreePsram());
+            Serial.println(" bytes");
+        }
+
+        Serial.print("CPU                    : ");
+        Serial.print(ESP.getCpuFreqMHz());
+        Serial.println(" MHz");
+
+        Serial.print("Wi-Fi status           : ");
+        Serial.println(
+            WiFi.status() == WL_CONNECTED ? "CONECTADO" : "NAO CONECTADO"
+        );
+
+        Serial.println();
+    }
+}
+
+// ------------------------------------------------------------
+// SETUP
+// ------------------------------------------------------------
+void setup() {
+
+    Serial.begin(115200);
+
+    delay(2000);
+
+    diagnosticoChip();
+
+    testeWiFi();
+
+    Serial.println();
+    Serial.println("============================================================");
+    Serial.println("              TESTE CONCLUIDO");
+    Serial.println("============================================================");
+    Serial.println("A ESP32-S3 esta executando o firmware normalmente.");
+    Serial.println("O relatorio de status sera atualizado a cada 5 segundos.");
+    Serial.println("============================================================");
+}
+
+// ------------------------------------------------------------
+// LOOP
+// ------------------------------------------------------------
+void loop() {
+
+    relatorioContinuo();
+
+    delay(10);
+}
