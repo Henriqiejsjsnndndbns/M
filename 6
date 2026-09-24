@@ -1,0 +1,144 @@
+#include <Arduino.h>
+#include "esp_system.h"
+#include "esp_chip_info.h"
+
+void linha()
+{
+    Serial.println("----------------------------------------");
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(1500);
+
+    Serial.println();
+    Serial.println("========================================");
+    Serial.println(" ESP32-S3 - 5V / LAYOUT DA PLACA");
+    Serial.println("========================================");
+
+    // CHIP
+    linha();
+    Serial.println("[ CHIP ]");
+
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+
+    Serial.printf("Modelo       : %s\n", ESP.getChipModel());
+    Serial.printf("Revisao      : %d\n", ESP.getChipRevision());
+    Serial.printf("CPU          : %u MHz\n", getCpuFrequencyMhz());
+    Serial.printf("Nucleos      : %d\n", chip.cores);
+
+    // FLASH
+    linha();
+    Serial.println("[ MEMORIA ]");
+
+    Serial.printf(
+        "Flash        : %.2f MB\n",
+        ESP.getFlashChipSize() / 1048576.0
+    );
+
+    Serial.printf(
+        "PSRAM        : %.2f MB\n",
+        ESP.getPsramSize() / 1048576.0
+    );
+
+    // USB
+    linha();
+    Serial.println("[ USB ]");
+
+#ifdef SOC_USB_OTG_SUPPORTED
+    Serial.printf(
+        "USB OTG      : %s\n",
+        SOC_USB_OTG_SUPPORTED ? "SIM" : "NAO"
+    );
+#else
+    Serial.println("USB OTG      : NAO IDENTIFICADO");
+#endif
+
+#ifdef SOC_USB_SERIAL_JTAG_SUPPORTED
+    Serial.printf(
+        "USB Serial/JTAG : %s\n",
+        SOC_USB_SERIAL_JTAG_SUPPORTED ? "SIM" : "NAO"
+    );
+#else
+    Serial.println("USB Serial/JTAG : NAO IDENTIFICADO");
+#endif
+
+    // GPIO
+    linha();
+    Serial.println("[ GPIO / LAYOUT LOGICO DO SOC ]");
+
+#ifdef SOC_GPIO_PIN_COUNT
+    Serial.printf(
+        "Quantidade de GPIOs do SoC: %d\n",
+        SOC_GPIO_PIN_COUNT
+    );
+#else
+    Serial.println(
+        "Quantidade de GPIOs: nao informada pelo header"
+    );
+#endif
+
+    Serial.println();
+    Serial.println("IMPORTANTE:");
+    Serial.println("Esta lista representa o SoC.");
+    Serial.println("Nao significa que todos esses GPIOs estejam");
+    Serial.println("fisicamente expostos na sua placa.");
+
+    // 5V
+    linha();
+    Serial.println("[ ALIMENTACAO ]");
+
+    Serial.println("Pino 5V:");
+    Serial.println("NAO E POSSIVEL CONFIRMAR 5V REAL POR SOFTWARE.");
+
+    Serial.println();
+    Serial.println("Para confirmar o 5V fisico:");
+    Serial.println("1. Multimetro em tensao DC.");
+    Serial.println("2. Ponta preta no GND.");
+    Serial.println("3. Ponta vermelha no pino marcado 5V.");
+    Serial.println("4. Alimente a placa pelo USB.");
+    Serial.println("5. Leia a tensao no multimetro.");
+
+    Serial.println();
+    Serial.println("ATENCAO:");
+    Serial.println("NAO conecte o pino 5V diretamente a um GPIO/ADC.");
+    Serial.println("O ESP32-S3 nao deve receber 5V diretamente em GPIO.");
+
+    // 3V3
+    linha();
+    Serial.println("[ 3V3 ]");
+
+    Serial.println("O pino 3V3 tambem precisa de multimetro");
+    Serial.println("para confirmar a tensao eletrica real.");
+
+    // CONCLUSAO
+    linha();
+    Serial.println("[ CONCLUSAO ]");
+
+    Serial.println("Software consegue identificar:");
+    Serial.println("- SoC");
+    Serial.println("- recursos do chip");
+    Serial.println("- USB");
+    Serial.println("- memoria configurada");
+    Serial.println("- quantidade logica de GPIOs");
+
+    Serial.println();
+    Serial.println("Software NAO consegue confirmar sozinho:");
+    Serial.println("- tensao real do pino 5V");
+    Serial.println("- tensao real do pino 3V3");
+    Serial.println("- continuidade das trilhas");
+    Serial.println("- regulador fisicamente funcionando");
+    Serial.println("- layout eletrico real da placa");
+
+    Serial.println();
+    Serial.println("========================================");
+    Serial.println(" DIAGNOSTICO CONCLUIDO");
+    Serial.println("========================================");
+}
+
+void loop()
+{
+    delay(1000);
+}
