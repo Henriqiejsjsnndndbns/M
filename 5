@@ -1,0 +1,761 @@
+#include <Arduino.h>
+#include <WiFi.h>
+
+#include "esp_system.h"
+#include "esp_chip_info.h"
+#include "esp_partition.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "nvs.h"
+#include "soc/soc_caps.h"
+
+// ============================================================
+// ESP32-S3 — DIAGNÓSTICO NÃO DESTRUTIVO
+// Compatível com Arduino-ESP32 3.x / PlatformIO
+// ============================================================
+
+static unsigned long ultimoStatus = 0;
+
+// ------------------------------------------------------------
+// CABEÇALHO
+// ------------------------------------------------------------
+
+void linha()
+{
+    Serial.println("------------------------------------------------------------");
+}
+
+void titulo(const char *texto)
+{
+    Serial.println();
+    linha();
+    Serial.println(texto);
+    linha();
+}
+
+// ------------------------------------------------------------
+// RESET
+// ------------------------------------------------------------
+
+const char *nomeReset(esp_reset_reason_t motivo)
+{
+    switch (motivo)
+    {
+        case ESP_RST_UNKNOWN:
+            return "UNKNOWN";
+
+        case ESP_RST_POWERON:
+            return "POWERON";
+
+        case ESP_RST_EXT:
+            return "EXTERNAL";
+
+        case ESP_RST_SW:
+            return "SOFTWARE";
+
+        case ESP_RST_PANIC:
+            return "PANIC";
+
+        case ESP_RST_INT_WDT:
+            return "INT_WATCHDOG";
+
+        case ESP_RST_TASK_WDT:
+            return "TASK_WATCHDOG";
+
+        case ESP_RST_WDT:
+            return "WATCHDOG";
+
+        case ESP_RST_DEEPSLEEP:
+            return "DEEPSLEEP";
+
+        case ESP_RST_BROWNOUT:
+            return "BROWNOUT";
+
+        case ESP_RST_SDIO:
+            return "SDIO";
+
+        default:
+            return "OUTRO";
+    }
+}
+
+// ------------------------------------------------------------
+// CHIP
+// ------------------------------------------------------------
+
+void diagnosticoChip()
+{
+    titulo("1. IDENTIFICACAO DO CHIP");
+
+    esp_chip_info_t info;
+    esp_chip_info(&info);
+
+    Serial.printf("Modelo                  : %s\n", ESP.getChipModel());
+    Serial.printf("Revisao                 : %d\n", ESP.getChipRevision());
+    Serial.printf("Nucleos                 : %d\n", info.cores);
+    Serial.printf("Frequencia CPU          : %u MHz\n", getCpuFrequencyMhz());
+
+    Serial.printf("Arduino-ESP32           : %s\n",
+                  ESP.getCoreVersion());
+
+    Serial.printf("ESP-IDF SDK             : %s\n",
+                  ESP.getSdkVersion());
+
+    Serial.printf("Features (hex)          : 0x%08X\n",
+                  info.features);
+
+    Serial.printf("Silicon revision        : %d\n",
+                  info.revision);
+
+    Serial.println();
+    Serial.println("Interpretacao:");
+    Serial.println("- As features acima sao informadas diretamente pelo chip.");
+    Serial.println("- Nao estou assumindo que a placa fisica tenha flash/PSRAM");
+    Serial.println("  iguais a configuracao atual do PlatformIO.");
+}
+
+// ------------------------------------------------------------
+// FLASH
+// ------------------------------------------------------------
+
+void diagnosticoFlash()
+{
+    titulo("2. FLASH");
+
+    uint32_t tamanho = ESP.getFlashChipSize();
+    uint32_t velocidade = ESP.getFlashChipSpeed();
+
+    Serial.printf("Flash configurada       : %u bytes\n", tamanho);
+    Serial.printf("Flash configurada       : %.2f MB\n",
+                  tamanho / 1048576.0);
+
+    Serial.printf("Velocidade flash        : %u Hz\n",
+                  velocidade);
+
+    Serial.printf("Velocidade flash        : %.2f MHz\n",
+                  velocidade / 1000000.0);
+
+    Serial.printf("Modo flash              : %d\n",
+                  (int)ESP.getFlashChipMode());
+
+    Serial.printf("Sketch usado            : %u bytes\n",
+                  ESP.getSketchSize());
+
+    Serial.printf("Espaco livre sketch     : %u bytes\n",
+                  ESP.getFreeSketchSpace());
+
+    Serial.println();
+    Serial.println("IMPORTANTE:");
+    Serial.println("O tamanho acima representa a configuracao/flash");
+    Serial.println("detectada pelo firmware atual.");
+    Serial.println("Nao deve ser usado sozinho para confirmar o modulo");
+    Serial.println("fisico N16R8.");
+}
+
+// ------------------------------------------------------------
+// PARTICOES
+// ------------------------------------------------------------
+
+void diagnosticoParticoes()
+{
+    titulo("3. PARTICOES DA FLASH");
+
+    esp_partition_iterator_t iterator =
+        esp_partition_find(
+            ESP_PARTITION_TYPE_ANY,
+            ESP_PARTITION_SUBTYPE_ANY,
+            NULL);
+
+    if (iterator == NULL)
+    {
+        Serial.println("Nenhuma particao encontrada.");
+        return;
+    }
+
+    int contador = 0;
+
+    while (iterator != NULL)
+    {
+        const esp_partition_t *part =
+            esp_partition_get(iterator);
+
+        if (part != NULL)
+        {
+            contador++;
+
+            Serial.printf(
+                "[%d] label=%s | tipo=%u | subtipo=%u | endereco=0x%08X | tamanho=%u bytes\n",
+                contador,
+                part->label,
+                (unsigned)part->type,
+                (unsigned)part->subtype,
+                (unsigned)part->address,
+                (unsigned)part->size
+            );
+
+            Serial.printf(
+                "    tamanho=%.2f MB | encrypted=%s\n",
+                part->size / 1048576.0,
+                part->encrypted ? "SIM" : "NAO"
+            );
+        }
+
+        iterator = esp_partition_next(iterator);
+    }
+
+    esp_partition_iterator_release(iterator);
+
+    Serial.printf("\nTotal de particoes: %d\n", contador);
+}
+
+// ------------------------------------------------------------
+// PSRAM
+// ------------------------------------------------------------
+
+void diagnosticoPSRAM()
+{
+    titulo("4. PSRAM");
+
+    uint32_t psram = ESP.getPsramSize();
+    uint32_t livre = ESP.getFreePsram();
+
+    Serial.printf("PSRAM detectada        : %s\n",
+                  psram > 0 ? "SIM" : "NAO");
+
+    Serial.printf("PSRAM total            : %u bytes\n",
+                  psram);
+
+    Serial.printf("PSRAM total            : %.2f MB\n",
+                  psram / 1048576.0);
+
+    Serial.printf("PSRAM livre            : %u bytes\n",
+                  livre);
+
+    if (psram > 0)
+    {
+        size_t maiorBloco =
+            heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+
+        Serial.printf("Maior bloco livre      : %u bytes\n",
+                      (unsigned)maiorBloco);
+
+        // Teste pequeno, temporario e nao destrutivo.
+        uint8_t *teste = (uint8_t *)ps_malloc(128);
+
+        if (teste != nullptr)
+        {
+            for (int i = 0; i < 128; i++)
+                teste[i] = (uint8_t)i;
+
+            bool correto = true;
+
+            for (int i = 0; i < 128; i++)
+            {
+                if (teste[i] != (uint8_t)i)
+                {
+                    correto = false;
+                    break;
+                }
+            }
+
+            free(teste);
+
+            Serial.printf(
+                "Teste RAM PSRAM       : %s\n",
+                correto ? "OK" : "FALHA"
+            );
+        }
+        else
+        {
+            Serial.println("Teste RAM PSRAM       : NAO FOI POSSIVEL ALOCAR");
+        }
+    }
+    else
+    {
+        Serial.println("Teste PSRAM            : NAO EXECUTADO");
+        Serial.println("Motivo                 : PSRAM nao detectada pelo firmware.");
+    }
+}
+
+// ------------------------------------------------------------
+// RAM
+// ------------------------------------------------------------
+
+void diagnosticoRAM()
+{
+    titulo("5. RAM / HEAP");
+
+    Serial.printf("Heap total             : %u bytes\n",
+                  ESP.getHeapSize());
+
+    Serial.printf("Heap livre             : %u bytes\n",
+                  ESP.getFreeHeap());
+
+    Serial.printf("Menor heap livre       : %u bytes\n",
+                  ESP.getMinFreeHeap());
+
+    Serial.printf("Maior bloco heap       : %u bytes\n",
+                  (unsigned)heap_caps_get_largest_free_block(
+                      MALLOC_CAP_INTERNAL));
+
+    Serial.printf("RAM interna total      : %u bytes\n",
+                  (unsigned)heap_caps_get_total_size(
+                      MALLOC_CAP_INTERNAL));
+
+    Serial.printf("RAM interna livre      : %u bytes\n",
+                  (unsigned)heap_caps_get_free_size(
+                      MALLOC_CAP_INTERNAL));
+}
+
+// ------------------------------------------------------------
+// RESET
+// ------------------------------------------------------------
+
+void diagnosticoReset()
+{
+    titulo("6. RESET / CAUSA DO ULTIMO RESET");
+
+    esp_reset_reason_t motivo = esp_reset_reason();
+
+    Serial.printf("Codigo reset           : %d\n",
+                  (int)motivo);
+
+    Serial.printf("Motivo                 : %s\n",
+                  nomeReset(motivo));
+}
+
+// ------------------------------------------------------------
+// MAC
+// ------------------------------------------------------------
+
+void diagnosticoMAC()
+{
+    titulo("7. ENDERECOS MAC");
+
+    uint8_t mac[6];
+
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    Serial.printf(
+        "WiFi STA MAC           : %02X:%02X:%02X:%02X:%02X:%02X\n",
+        mac[0], mac[1], mac[2],
+        mac[3], mac[4], mac[5]
+    );
+
+    esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
+
+    Serial.printf(
+        "WiFi AP MAC            : %02X:%02X:%02X:%02X:%02X:%02X\n",
+        mac[0], mac[1], mac[2],
+        mac[3], mac[4], mac[5]
+    );
+}
+
+// ------------------------------------------------------------
+// WIFI
+// ------------------------------------------------------------
+
+void diagnosticoWiFi()
+{
+    titulo("8. WIFI — SCAN SEM CONEXAO");
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(false, false);
+
+    delay(300);
+
+    Serial.println("Executando scan...");
+    Serial.println("Nenhuma rede sera conectada.");
+
+    int quantidade = WiFi.scanNetworks(
+        false,
+        true
+    );
+
+    if (quantidade < 0)
+    {
+        Serial.printf(
+            "Resultado do scan    : ERRO (%d)\n",
+            quantidade
+        );
+
+        WiFi.scanDelete();
+        return;
+    }
+
+    Serial.printf(
+        "Redes encontradas     : %d\n",
+        quantidade
+    );
+
+    for (int i = 0; i < quantidade; i++)
+    {
+        Serial.printf(
+            "[%02d] RSSI=%4d dBm | canal=%2d | %s\n",
+            i + 1,
+            WiFi.RSSI(i),
+            WiFi.channel(i),
+            WiFi.SSID(i).c_str()
+        );
+    }
+
+    WiFi.scanDelete();
+
+    Serial.println();
+    Serial.println("Status: scan concluido sem conectar em nenhuma rede.");
+}
+
+// ------------------------------------------------------------
+// BLUETOOTH
+// ------------------------------------------------------------
+
+void diagnosticoBluetooth()
+{
+    titulo("9. BLUETOOTH");
+
+#if CONFIG_BT_ENABLED
+    Serial.println("Bluetooth stack: SUPORTE PRESENTE NO BUILD");
+#else
+    Serial.println("Bluetooth stack: NAO HABILITADA NESTE BUILD");
+#endif
+
+    Serial.println();
+    Serial.println("Observacao:");
+    Serial.println("O ESP32-S3 possui suporte Bluetooth Low Energy.");
+    Serial.println("Este diagnostico nao inicia pareamento nem transmissao.");
+}
+
+// ------------------------------------------------------------
+// USB
+// ------------------------------------------------------------
+
+void diagnosticoUSB()
+{
+    titulo("10. USB");
+
+#ifdef SOC_USB_OTG_SUPPORTED
+    Serial.printf(
+        "USB OTG                : %s\n",
+        SOC_USB_OTG_SUPPORTED ? "SUPORTADO" : "NAO"
+    );
+#else
+    Serial.println("USB OTG                : macro nao disponivel");
+#endif
+
+#ifdef SOC_USB_SERIAL_JTAG_SUPPORTED
+    Serial.printf(
+        "USB Serial/JTAG        : %s\n",
+        SOC_USB_SERIAL_JTAG_SUPPORTED ? "SUPORTADO" : "NAO"
+    );
+#else
+    Serial.println("USB Serial/JTAG        : macro nao disponivel");
+#endif
+
+    Serial.println();
+    Serial.println("Observacao:");
+    Serial.println("A presenca fisica do conector USB nao pode ser");
+    Serial.println("confirmada apenas pelo software.");
+}
+
+// ------------------------------------------------------------
+// GPIO
+// ------------------------------------------------------------
+
+void diagnosticoGPIO()
+{
+    titulo("11. GPIO");
+
+#ifdef SOC_GPIO_PIN_COUNT
+    Serial.printf(
+        "GPIOs definidos pelo SoC: %d\n",
+        SOC_GPIO_PIN_COUNT
+    );
+#else
+    Serial.println("Quantidade GPIO: macro nao disponivel");
+#endif
+
+    Serial.println();
+    Serial.println("Nenhum GPIO sera colocado em HIGH ou LOW.");
+    Serial.println("Nenhum pino sera configurado como OUTPUT.");
+    Serial.println("Nao sera aplicado sinal eletrico externo.");
+
+    Serial.println();
+    Serial.println("O software nao consegue determinar sozinho:");
+    Serial.println("- pino fisicamente acessivel");
+    Serial.println("- pino conectado ao LED");
+    Serial.println("- pino conectado ao USB");
+    Serial.println("- pino conectado a periferico externo");
+    Serial.println("- tensao eletrica presente no pino");
+}
+
+// ------------------------------------------------------------
+// ADC
+// ------------------------------------------------------------
+
+void diagnosticoADC()
+{
+    titulo("12. ADC");
+
+#ifdef SOC_ADC_SUPPORTED
+    Serial.println("ADC do SoC             : SUPORTADO");
+#else
+    Serial.println("ADC do SoC             : NAO CONFIRMADO");
+#endif
+
+    Serial.println();
+    Serial.println("Nenhuma leitura ADC sera feita automaticamente.");
+    Serial.println("Motivo: sem conhecer a conexao fisica dos pinos,");
+    Serial.println("uma leitura pode representar circuito externo.");
+}
+
+// ------------------------------------------------------------
+// PWM / LEDC
+// ------------------------------------------------------------
+
+void diagnosticoLEDC()
+{
+    titulo("13. PWM / LEDC");
+
+#ifdef SOC_LEDC_SUPPORTED
+    Serial.println("LEDC/PWM               : SUPORTADO");
+#else
+    Serial.println("LEDC/PWM               : NAO CONFIRMADO");
+#endif
+
+    Serial.println();
+    Serial.println("Nenhum PWM sera iniciado.");
+    Serial.println("Nenhum pino sera alterado.");
+}
+
+// ------------------------------------------------------------
+// I2C
+// ------------------------------------------------------------
+
+void diagnosticoI2C()
+{
+    titulo("14. I2C");
+
+#ifdef SOC_I2C_SUPPORTED
+    Serial.println("Controlador I2C        : SUPORTADO");
+#else
+    Serial.println("Controlador I2C        : NAO CONFIRMADO");
+#endif
+
+    Serial.println();
+    Serial.println("Nenhum barramento sera escaneado.");
+    Serial.println("Motivo: um scan I2C exige pinos fisicos conhecidos.");
+}
+
+// ------------------------------------------------------------
+// SPI
+// ------------------------------------------------------------
+
+void diagnosticoSPI()
+{
+    titulo("15. SPI");
+
+#ifdef SOC_SPI_SUPPORTED
+    Serial.println("Controlador SPI        : SUPORTADO");
+#else
+    Serial.println("Controlador SPI        : NAO CONFIRMADO");
+#endif
+
+    Serial.println();
+    Serial.println("Nenhum dispositivo SPI sera acionado.");
+}
+
+// ------------------------------------------------------------
+// UART
+// ------------------------------------------------------------
+
+void diagnosticoUART()
+{
+    titulo("16. UART");
+
+#ifdef SOC_UART_SUPPORTED
+    Serial.println("UART                  : SUPORTADO");
+#else
+    Serial.println("UART                  : NAO CONFIRMADO");
+#endif
+
+    Serial.println();
+    Serial.println("A UART usada pelo monitor serial permanece intacta.");
+}
+
+// ------------------------------------------------------------
+// CLOCK / TIMER
+// ------------------------------------------------------------
+
+void diagnosticoClock()
+{
+    titulo("17. CLOCKS / TIMERS");
+
+    Serial.printf(
+        "CPU                  : %u MHz\n",
+        getCpuFrequencyMhz()
+    );
+
+    Serial.printf(
+        "millis()             : %lu\n",
+        millis()
+    );
+
+    Serial.printf(
+        "micros()             : %lu\n",
+        micros()
+    );
+
+    Serial.printf(
+        "esp_timer_get_time() : %lld us\n",
+        (long long)esp_timer_get_time()
+    );
+
+    Serial.println();
+    Serial.println("Timers basicos funcionando.");
+}
+
+// ------------------------------------------------------------
+// TEMPERATURA
+// ------------------------------------------------------------
+
+void diagnosticoTemperatura()
+{
+    titulo("18. TEMPERATURA INTERNA");
+
+#if __has_include("esp32-hal-temperature.h")
+
+#include "esp32-hal-temperature.h"
+
+    float temperatura = temperatureRead();
+
+    if (isnan(temperatura))
+    {
+        Serial.println("Temperatura            : NAO DISPONIVEL");
+    }
+    else
+    {
+        Serial.printf(
+            "Temperatura reportada : %.2f C\n",
+            temperatura
+        );
+
+        Serial.println();
+        Serial.println("IMPORTANTE:");
+        Serial.println("Esse sensor interno nao equivale a um termometro");
+        Serial.println("externo de precisao.");
+    }
+
+#else
+
+    Serial.println(
+        "Temperatura            : NAO DISPONIVEL NESTE BUILD"
+    );
+
+#endif
+}
+
+// ------------------------------------------------------------
+// WATCHDOG
+// ------------------------------------------------------------
+
+void diagnosticoWatchdog()
+{
+    titulo("19. WATCHDOG");
+
+    Serial.println("Watchdog do sistema    : mecanismo existente no SoC");
+    Serial.println("Teste de watchdog      : NAO EXECUTADO");
+
+    Serial.println();
+    Serial.println("Motivo:");
+    Serial.println("Nao vamos provocar reset proposital durante o diagnostico.");
+}
+
+// ------------------------------------------------------------
+// NVS
+// ------------------------------------------------------------
+
+void diagnosticoNVS()
+{
+    titulo("20. NVS");
+
+    nvs_stats_t stats;
+
+    esp_err_t resultado =
+        nvs_get_stats(NULL, &stats);
+
+    if (resultado != ESP_OK)
+    {
+        Serial.printf(
+            "Erro lendo estatisticas NVS: %d\n",
+            resultado
+        );
+
+        return;
+    }
+
+    Serial.printf(
+        "Total de paginas       : %lu\n",
+        (unsigned long)stats.total_entries
+    );
+
+    Serial.printf(
+        "Entradas usadas        : %lu\n",
+        (unsigned long)stats.used_entries
+    );
+
+    Serial.printf(
+        "Entradas livres        : %lu\n",
+        (unsigned long)stats.free_entries
+    );
+
+    Serial.printf(
+        "Entradas disponiveis   : %lu\n",
+        (unsigned long)stats.available_entries
+    );
+
+    Serial.println();
+    Serial.println("NVS somente foi consultada.");
+    Serial.println("Nenhum dado foi escrito.");
+}
+
+// ------------------------------------------------------------
+// LIMITACOES FISICAS
+// ------------------------------------------------------------
+
+void diagnosticoFisico()
+{
+    titulo("21. O QUE O SOFTWARE NAO PODE CONFIRMAR");
+
+    Serial.println("NECESSITA INSPECAO FISICA / MULTIMETRO:");
+    Serial.println();
+    Serial.println("1. Tensao real no pino 5V");
+    Serial.println("2. Tensao real no pino 3V3");
+    Serial.println("3. Continuidade entre pinos");
+    Serial.println("4. Curto-circuito");
+    Serial.println("5. Corrente disponivel na alimentacao");
+    Serial.println("6. Estado fisico de reguladores");
+    Serial.println("7. Estado fisico do conector USB");
+    Serial.println("8. Identificacao exata dos pinos expostos");
+    Serial.println("9. Ligacao do LED da placa");
+    Serial.println("10. Existencia de componentes externos");
+    Serial.println("11. Capacidade real da fonte USB");
+    Serial.println("12. Tensao fornecida por cabo/fonte");
+    Serial.println("13. Funcionamento eletrico da ventoinha");
+    Serial.println("14. Capacidade de corrente de qualquer GPIO");
+}
+
+// ------------------------------------------------------------
+// RESUMO
+// ------------------------------------------------------------
+
+void resumoFinal()
+{
+    titulo("22. RESUMO EXECUTIVO");
+
+    Serial.println("Diagnostico concluido.");
+    Serial.println();
+    Serial.println("Nenhuma operacao destrutiva foi realizada.");
+    Serial.println("Nenhuma flash foi apagada.");
+    Serial.println("Nenhum eFuse foi alterado.");
+    Serial.println("Nenhum GPIO foi acionado para teste.");
+    Serial.printl
