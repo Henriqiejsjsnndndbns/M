@@ -1,1 +1,923 @@
-openssl s_client -connect api.bet365.com:443 -showcerts </dev/null 2>/dev/null | openssl x509 -pubkey -noout > bet365_pubkey.pem
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+
+// ============================================================
+// CONFIGURAÇÃO
+// ============================================================
+
+#define SPEAKER_PIN 5
+#define IR_PIN      4
+
+#define LEDC_CHANNEL    0
+#define LEDC_RESOLUTION 8
+
+const char* WIFI_SSID     = "INFORNET_MARIANA";
+const char* WIFI_PASSWORD = "anamaria";
+
+WebServer server(80);
+
+// ============================================================
+// ESTADO DO ÁUDIO
+// ============================================================
+
+bool audioAtivo = false;
+
+uint32_t frequenciaAtual = 1000;
+uint32_t totalTons = 0;
+uint32_t ciclos = 0;
+
+unsigned long inicioAudio = 0;
+unsigned long ultimoTom = 0;
+
+const unsigned long DURACAO_TOM = 500;
+
+// ============================================================
+// HTML
+// ============================================================
+
+const char HTML_PAGE[] PROGMEM = R"HTML(
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width,
+               initial-scale=1.0">
+
+<title>ESP32-S3 Audio Test</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+    background: #111827;
+    color: #f9fafb;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+}
+
+h1 {
+    margin-bottom: 5px;
+}
+
+.subtitle {
+    color: #9ca3af;
+    margin-bottom: 25px;
+}
+
+.card {
+    background: #1f2937;
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 18px;
+    box-shadow: 0 5px 20px rgba(0,0,0,.25);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.stat {
+    background: #111827;
+    padding: 15px;
+    border-radius: 10px;
+}
+
+.label {
+    color: #9ca3af;
+    font-size: 13px;
+}
+
+.value {
+    font-size: 22px;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+button {
+    border: 0;
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 5px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.start {
+    background: #16a34a;
+    color: white;
+}
+
+.stop {
+    background: #dc2626;
+    color: white;
+}
+
+.beep {
+    background: #2563eb;
+    color: white;
+}
+
+button:active {
+    transform: scale(.97);
+}
+
+input {
+    width: 100%;
+    padding: 13px;
+    border-radius: 8px;
+    border: 1px solid #374151;
+    background: #111827;
+    color: white;
+    font-size: 16px;
+    margin-bottom: 10px;
+}
+
+.status {
+    padding: 10px;
+    border-radius: 8px;
+    background: #111827;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>ESP32-S3 Audio Test</h1>
+
+<div class="subtitle">
+Painel de diagnóstico do GPIO5
+</div>
+
+<div class="card">
+
+<h2>Controle</h2>
+
+<button class="start"
+        onclick="startAudio()">
+Iniciar
+</button>
+
+<button class="stop"
+        onclick="stopAudio()">
+Parar
+</button>
+
+<button class="beep"
+        onclick="beep()">
+Teste rápido
+</button>
+
+</div>
+
+<div class="card">
+
+<h2>Frequência</h2>
+
+<input
+    id="freq"
+    type="number"
+    min="10"
+    max="20000"
+    value="1000">
+
+<button class="beep"
+        onclick="setFrequency()">
+Testar frequência
+</button>
+
+</div>
+
+<div class="card">
+
+<h2>Status</h2>
+
+<div class="grid">
+
+<div class="stat">
+<div class="label">Wi-Fi</div>
+<div class="value" id="wifi">---</div>
+</div>
+
+<div class="stat">
+<div class="label">IP</div>
+<div class="value" id="ip">---</div>
+</div>
+
+<div class="stat">
+<div class="label">RSSI</div>
+<div class="value" id="rssi">---</div>
+</div>
+
+<div class="stat">
+<div class="label">Áudio</div>
+<div class="value" id="audio">---</div>
+</div>
+
+<div class="stat">
+<div class="label">GPIO</div>
+<div class="value">GPIO5</div>
+</div>
+
+<div class="stat">
+<div class="label">Frequência</div>
+<div class="value" id="frequency">---</div>
+</div>
+
+<div class="stat">
+<div class="label">Tons</div>
+<div class="value" id="tones">---</div>
+</div>
+
+<div class="stat">
+<div class="label">Ciclos</div>
+<div class="value" id="cycles">---</div>
+</div>
+
+<div class="stat">
+<div class="label">Uptime</div>
+<div class="value" id="uptime">---</div>
+</div>
+
+</div>
+
+</div>
+
+<div class="card">
+
+<h2>Informações</h2>
+
+<div class="status">
+GPIO4 reservado para receptor IR.
+</div>
+
+<br>
+
+<div class="status">
+GPIO5 utilizado para teste de áudio.
+</div>
+
+</div>
+
+</div>
+
+<script>
+
+async function getStatus() {
+
+    try {
+
+        const response =
+            await fetch('/api/status');
+
+        const data =
+            await response.json();
+
+        document.getElementById('wifi')
+            .textContent =
+            data.wifi ? 'Conectado' : 'Desconectado';
+
+        document.getElementById('ip')
+            .textContent = data.ip;
+
+        document.getElementById('rssi')
+            .textContent = data.rssi + ' dBm';
+
+        document.getElementById('audio')
+            .textContent =
+            data.audio ? 'ATIVO' : 'PARADO';
+
+        document.getElementById('frequency')
+            .textContent =
+            data.frequency + ' Hz';
+
+        document.getElementById('tones')
+            .textContent = data.tones;
+
+        document.getElementById('cycles')
+            .textContent = data.cycles;
+
+        document.getElementById('uptime')
+            .textContent =
+            data.uptime + ' s';
+
+    } catch (e) {
+
+        console.log(e);
+
+    }
+
+}
+
+async function startAudio() {
+
+    await fetch('/api/start');
+
+    getStatus();
+
+}
+
+async function stopAudio() {
+
+    await fetch('/api/stop');
+
+    getStatus();
+
+}
+
+async function beep() {
+
+    await fetch('/api/beep');
+
+    getStatus();
+
+}
+
+async function setFrequency() {
+
+    const freq =
+        document.getElementById('freq').value;
+
+    await fetch(
+        '/api/beep?freq=' + freq
+    );
+
+    getStatus();
+
+}
+
+setInterval(getStatus, 1000);
+
+getStatus();
+
+</script>
+
+</body>
+
+</html>
+)HTML";
+
+// ============================================================
+// ÁUDIO
+// ============================================================
+
+void iniciarAudio()
+{
+    ledcSetup(
+        LEDC_CHANNEL,
+        frequenciaAtual,
+        LEDC_RESOLUTION
+    );
+
+    ledcAttachPin(
+        SPEAKER_PIN,
+        LEDC_CHANNEL
+    );
+
+    ledcWriteTone(
+        LEDC_CHANNEL,
+        frequenciaAtual
+    );
+
+    audioAtivo = true;
+
+    inicioAudio = millis();
+    ultimoTom = millis();
+}
+
+// ============================================================
+
+void pararAudio()
+{
+    ledcWriteTone(
+        LEDC_CHANNEL,
+        0
+    );
+
+    audioAtivo = false;
+}
+
+// ============================================================
+
+void beepAudio(uint32_t frequencia)
+{
+    if (frequencia < 10)
+        frequencia = 10;
+
+    if (frequencia > 20000)
+        frequencia = 20000;
+
+    frequenciaAtual = frequencia;
+
+    ledcSetup(
+        LEDC_CHANNEL,
+        frequenciaAtual,
+        LEDC_RESOLUTION
+    );
+
+    ledcAttachPin(
+        SPEAKER_PIN,
+        LEDC_CHANNEL
+    );
+
+    ledcWriteTone(
+        LEDC_CHANNEL,
+        frequenciaAtual
+    );
+
+    totalTons++;
+
+    delay(200);
+
+    ledcWriteTone(
+        LEDC_CHANNEL,
+        0
+    );
+}
+
+// ============================================================
+// ATUALIZAÇÃO DO ÁUDIO
+// ============================================================
+
+void atualizarAudio()
+{
+    if (!audioAtivo)
+        return;
+
+    unsigned long agora = millis();
+
+    if (agora - ultimoTom >= DURACAO_TOM)
+    {
+        ultimoTom = agora;
+
+        if (audioAtivo)
+        {
+            ledcWriteTone(
+                LEDC_CHANNEL,
+                frequenciaAtual
+            );
+
+            totalTons++;
+            ciclos++;
+        }
+    }
+}
+
+// ============================================================
+// WIFI
+// ============================================================
+
+void conectarWiFi()
+{
+    WiFi.mode(WIFI_STA);
+
+    WiFi.begin(
+        WIFI_SSID,
+        WIFI_PASSWORD
+    );
+
+    Serial.println();
+    Serial.println(
+        "Conectando ao Wi-Fi..."
+    );
+
+    unsigned long inicio = millis();
+
+    while (
+        WiFi.status() != WL_CONNECTED &&
+        millis() - inicio < 15000
+    )
+    {
+        delay(500);
+
+        Serial.print(".");
+    }
+
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.println(
+            "Wi-Fi conectado."
+        );
+
+        Serial.print(
+            "IP: "
+        );
+
+        Serial.println(
+            WiFi.localIP()
+        );
+
+        Serial.print(
+            "RSSI: "
+        );
+
+        Serial.println(
+            WiFi.RSSI()
+        );
+
+        if (
+            MDNS.begin("esp32-audio")
+        )
+        {
+            Serial.println(
+                "mDNS: http://esp32-audio.local"
+            );
+        }
+    }
+    else
+    {
+        Serial.println(
+            "Falha ao conectar Wi-Fi."
+        );
+    }
+}
+
+// ============================================================
+
+void verificarWiFi()
+{
+    static unsigned long ultimaTentativa = 0;
+
+    if (
+        WiFi.status() == WL_CONNECTED
+    )
+    {
+        return;
+    }
+
+    if (
+        millis() - ultimaTentativa < 10000
+    )
+    {
+        return;
+    }
+
+    ultimaTentativa = millis();
+
+    Serial.println(
+        "Tentando reconectar Wi-Fi..."
+    );
+
+    WiFi.disconnect();
+
+    WiFi.begin(
+        WIFI_SSID,
+        WIFI_PASSWORD
+    );
+}
+
+// ============================================================
+// API STATUS
+// ============================================================
+
+void apiStatus()
+{
+    String json = "{";
+
+    json += "\"wifi\":";
+    json +=
+        WiFi.status() == WL_CONNECTED
+        ? "true"
+        : "false";
+
+    json += ",";
+
+    json += "\"ip\":\"";
+    json +=
+        WiFi.status() == WL_CONNECTED
+        ? WiFi.localIP().toString()
+        : "0.0.0.0";
+    json += "\"";
+
+    json += ",";
+
+    json += "\"rssi\":";
+    json +=
+        WiFi.status() == WL_CONNECTED
+        ? String(WiFi.RSSI())
+        : "0";
+
+    json += ",";
+
+    json += "\"audio\":";
+    json +=
+        audioAtivo
+        ? "true"
+        : "false";
+
+    json += ",";
+
+    json += "\"frequency\":";
+    json += String(frequenciaAtual);
+
+    json += ",";
+
+    json += "\"tones\":";
+    json += String(totalTons);
+
+    json += ",";
+
+    json += "\"cycles\":";
+    json += String(ciclos);
+
+    json += ",";
+
+    json += "\"uptime\":";
+    json += String(
+        millis() / 1000
+    );
+
+    json += "}";
+
+    server.send(
+        200,
+        "application/json",
+        json
+    );
+}
+
+// ============================================================
+// API START
+// ============================================================
+
+void apiStart()
+{
+    iniciarAudio();
+
+    server.send(
+        200,
+        "application/json",
+        "{\"ok\":true}"
+    );
+}
+
+// ============================================================
+// API STOP
+// ============================================================
+
+void apiStop()
+{
+    pararAudio();
+
+    server.send(
+        200,
+        "application/json",
+        "{\"ok\":true}"
+    );
+}
+
+// ============================================================
+// API BEEP
+// ============================================================
+
+void apiBeep()
+{
+    uint32_t frequencia =
+        frequenciaAtual;
+
+    if (
+        server.hasArg("freq")
+    )
+    {
+        frequencia =
+            server.arg("freq").toInt();
+    }
+
+    beepAudio(
+        frequencia
+    );
+
+    server.send(
+        200,
+        "application/json",
+        "{\"ok\":true}"
+    );
+}
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup()
+{
+    Serial.begin(115200);
+
+    delay(1000);
+
+    Serial.println();
+    Serial.println(
+        "================================"
+    );
+
+    Serial.println(
+        "ESP32-S3 AUDIO DIAGNOSTICO"
+    );
+
+    Serial.println(
+        "================================"
+    );
+
+    Serial.println();
+
+    Serial.print(
+        "CPU: "
+    );
+
+    Serial.print(
+        ESP.getCpuFreqMHz()
+    );
+
+    Serial.println(
+        " MHz"
+    );
+
+    Serial.print(
+        "Flash: "
+    );
+
+    Serial.print(
+        ESP.getFlashChipSize() /
+        (1024 * 1024)
+    );
+
+    Serial.println(
+        " MB"
+    );
+
+    Serial.print(
+        "PSRAM: "
+    );
+
+    if (psramFound())
+    {
+        Serial.print(
+            ESP.getPsramSize() /
+            (1024 * 1024)
+        );
+
+        Serial.println(
+            " MB"
+        );
+    }
+    else
+    {
+        Serial.println(
+            "NAO DETECTADA"
+        );
+    }
+
+    Serial.println();
+
+    // GPIO DO ALTO-FALANTE
+
+    pinMode(
+        SPEAKER_PIN,
+        OUTPUT
+    );
+
+    digitalWrite(
+        SPEAKER_PIN,
+        LOW
+    );
+
+    // GPIO DO IR
+
+    pinMode(
+        IR_PIN,
+        INPUT
+    );
+
+    // CONFIGURA LEDC
+
+    ledcSetup(
+        LEDC_CHANNEL,
+        frequenciaAtual,
+        LEDC_RESOLUTION
+    );
+
+    ledcAttachPin(
+        SPEAKER_PIN,
+        LEDC_CHANNEL
+    );
+
+    ledcWriteTone(
+        LEDC_CHANNEL,
+        0
+    );
+
+    // WIFI
+
+    conectarWiFi();
+
+    // SERVIDOR WEB
+
+    server.on(
+        "/",
+        HTTP_GET,
+        []()
+        {
+            server.send_P(
+                200,
+                "text/html",
+                HTML_PAGE
+            );
+        }
+    );
+
+    server.on(
+        "/api/status",
+        HTTP_GET,
+        apiStatus
+    );
+
+    server.on(
+        "/api/start",
+        HTTP_GET,
+        apiStart
+    );
+
+    server.on(
+        "/api/stop",
+        HTTP_GET,
+        apiStop
+    );
+
+    server.on(
+        "/api/beep",
+        HTTP_GET,
+        apiBeep
+    );
+
+    server.begin();
+
+    Serial.println(
+        "Servidor HTTP iniciado."
+    );
+
+    if (
+        WiFi.status() == WL_CONNECTED
+    )
+    {
+        Serial.print(
+            "Painel: http://"
+        );
+
+        Serial.println(
+            WiFi.localIP()
+        );
+    }
+
+    Serial.println();
+
+    Serial.println(
+        "GPIO5 = AUDIO"
+    );
+
+    Serial.println(
+        "GPIO4 = IR"
+    );
+
+    Serial.println();
+
+    Serial.println(
+        "Sistema pronto."
+    );
+}
+
+// ============================================================
+// LOOP
+// ============================================================
+
+void loop()
+{
+    server.handleClient();
+
+    atualizarAudio();
+
+    verificarWiFi();
+
+    delay(1);
+}
